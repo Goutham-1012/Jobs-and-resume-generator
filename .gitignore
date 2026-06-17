@@ -1,0 +1,17 @@
+# Secrets — never commit
+.env
+**/.env
+*.key
+
+# Local data / runtime
+jobs.db
+*.db
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.claude/

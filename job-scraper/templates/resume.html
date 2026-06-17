@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Resume Generator</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>📄 Resume Generator</h1>
+    <span class="sub">OpenAI · ATS-optimized for Data / AI-ML roles</span>
+    <nav class="nav"><a href="/">← Job Dashboard</a></nav>
+  </header>
+
+  <section class="panel">
+    <div class="resume-grid">
+      <label>Your current resume (paste plain text)
+        <textarea id="resume" rows="16" placeholder="Paste your full resume here…"></textarea>
+      </label>
+      <label>Target job description
+        <div class="jd-tools">
+          <select id="jobPicker"><option value="">— or load from a scraped job —</option></select>
+        </div>
+        <textarea id="jobDescription" rows="14" placeholder="Paste the job description here, or pick a scraped job above…"></textarea>
+      </label>
+    </div>
+    <div class="resume-actions">
+      <button id="genBtn">Generate Optimized Resume</button>
+      <span id="status" class="status"></span>
+    </div>
+  </section>
+
+  <section class="panel" id="outputPanel" style="display:none">
+    <div class="toolbar">
+      <strong>Optimized Resume + ATS Analysis</strong>
+      <span class="counts">
+        <button id="copyBtn" class="mini">Copy</button>
+        <button id="dlBtn" class="mini">Download .docx</button>
+      </span>
+    </div>
+    <pre id="output" class="output"></pre>
+  </section>
+
+  <script src="/static/resume.js"></script>
+</body>
+</html>

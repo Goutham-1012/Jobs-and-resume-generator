@@ -1,0 +1,91 @@
+GOUTHAM REDDY GUNNALA
+gunnalagouthamreddy0@gmail.com| 913-406-5191 | LinkedIn | GitHub | Portfolio
+PROFESSIONAL SUMMARY
+Results-driven Senior AI/ML Engineer with 6+ years of experience building scalable production AI systems using LLMs, multimodal models, agentic AI frameworks, and deep learning across energy, finance, healthcare, and retail domains.
+Specialized in building and deploying generative AI pipelines, multi-agent systems, and fine-tuned LLMs (LoRA, QLoRA, PEFT) using PyTorch, TensorFlow, Hugging Face, LangChain, LangGraph, and OpenAI/Anthropic APIs for real-time text, image, code generation, and agentic workflows.
+Proficient in vector database search (FAISS, Pinecone, Weaviate, Milvus), RAG architectures, LlamaIndex, semantic chunking, embedding pipelines, multi-turn memory optimization, and hallucination reduction strategies for production LLM applications.
+Deep expertise in MLOps and LLMOps using MLflow, SageMaker, Vertex AI, Triton Inference Server, Docker, Kubernetes, and CI/CD workflows, ensuring model reliability, governance, responsible AI compliance, and A/B testing at enterprise scale.
+TECHNICAL SKILLS
+Programming & Scripting: Python, SQL, JavaScript
+Large Language Models & Deep Learning: PyTorch, TensorFlow, Keras, JAX, Hugging Face Transformers, GPT-4o, BERT, T5, CLIP, LLaMA, Mistral, Gemini, Diffusion Models, GANs, VAEs, LoRA, QLoRA, PEFT, Multimodal Models, Computer Vision, NLP, Speech Recognition
+Generative AI & Prompt Engineering: OpenAI API, LangChain, LangGraph, LlamaIndex, Cohere, Anthropic Claude, AWS Bedrock, Azure OpenAI, DreamBooth, Zero-shot/Few-shot Prompting, Chain-of-Thought, Retrieval-Augmented Generation (RAG), Multi-Agent Systems, Agentic AI, Function Calling, System Prompt Design, Multimodal AI, Fine-tuning
+MLOps & Model Lifecycle: MLflow, KServe, SageMaker, Vertex AI, Azure ML, DVC, Weights & Biases, Kubeflow, Triton Inference Server, TorchServe, Ray, CI/CD (Jenkins, GitHub Actions), LLMOps, Model Governance, A/B Testing, Data Drift Monitoring, Hallucination Reduction
+Data Engineering & Pipelines: Apache Kafka, Apache Spark, Apache Airflow, BigQuery, Snowflake, Apache NiFi, Apache Flink, dbt, Delta Lake, Databricks, Redshift, ETL/ELT Pipelines, Timeseries Data, Distributed Computing
+Vector Databases & Embedding Stores: FAISS, Pinecone, Weaviate, ChromaDB, Milvus, pgvector, Elasticsearch, Embedding Pipelines, Semantic Search, Vector Indexing
+Model Deployment & Serving: Docker, Kubernetes, ONNX, TensorRT, FastAPI, Flask, REST APIs, GraphQL, gRPC, Model Quantization, Knowledge Distillation, Inference Optimization, Model Compression, GPU Acceleration, AWS Lambda, Edge Deployment
+Cloud Platforms & Infrastructure: AWS (SageMaker, Bedrock, EC2, S3, Lambda, EKS), Azure (Azure ML, Azure OpenAI, AKS), Terraform, Helm, Pulumi, Cloud Cost Optimization, Distributed Training
+Monitoring & Observability: Prometheus, Grafana, ELK Stack, OpenTelemetry
+Visualization & UI Tools: Streamlit, Gradio, Dash, Jupyter Notebooks, Power BI, Looker
+Security & Responsible AI: Apache Ranger, DLP APIs, Federated Learning, Differential Privacy, Fairlearn, SHAP, LIME, Responsible AI Standards, RLHF, RLAIF, AI Safety, Bias Detection, Model Explainability, Regulatory Compliance, PII Redaction
+Graph & Knowledge Systems: Neo4j, RDF, SPARQL, Knowledge Graphs, Graph Neural Networks (GNN)
+AI Frameworks & Agentic Systems: AutoGen, CrewAI, PhiData, Semantic Kernel, LangGraph Agents, Tool Use, ReAct Framework, Prompt Chaining, Multi-Agent Orchestration, Retrieval Pipelines, Conversational AI
+Statistical & Applied Mathematics: Optimization Algorithms, Bayesian Methods, Time Series Forecasting, Statistical Modeling, Regression, Classification, Clustering, Dimensionality Reduction, Linear Algebra, Probability Theory, Predictive Analytics, Simulation
+PROFESSIONAL EXPERIENCE
+Senior AI Engineer 								                            Nov 2025 - Present
+NextEra Energy, Juno Beach, FL
+Architected and deployed multi-agent AI systems using LangChain, LangGraph, and AutoGen to automate energy grid optimization workflows, reducing manual intervention by 55% and improving operational decision latency by 40% across renewable energy planning pipelines.
+Fine-tuned domain-specific LLMs (LLaMA 3, Mistral) using LoRA and QLoRA on energy forecasting and asset maintenance datasets, achieving 92% prediction accuracy on wind and solar output models and reducing unplanned outages by 30%.
+Built end-to-end RAG pipelines using LlamaIndex, Pinecone, and AWS Bedrock to enable intelligent document retrieval across 10M+ regulatory compliance and grid operations records, improving analyst query resolution speed by 65% and reducing hallucination rates through advanced semantic chunking strategies.
+Designed multimodal AI pipelines combining CLIP and GPT-4o Vision to analyze satellite imagery, sensor telemetry, and equipment inspection reports, enabling predictive maintenance decisions with 87% fault detection precision across 500+ wind turbines.
+Implemented MLOps governance frameworks using MLflow, Weights & Biases, and Triton Inference Server on AWS SageMaker, establishing model versioning, automated drift detection, A/B testing pipelines, and LLMOps observability, cutting model rollback time by 70% and maintaining 99.95% uptime for production AI services.
+Engineered real-time timeseries anomaly detection systems using PyTorch, Apache Kafka, and Apache Spark on distributed computing clusters, processing 50TB+ of SCADA and sensor data daily to identify grid instability events 45% faster than legacy rule-based systems.
+Applied SHAP, LIME, and Fairlearn to deliver explainable AI dashboards for energy regulators, ensuring responsible AI standards compliance and bias-free optimization recommendations across demand forecasting models covering 5M+ utility customers.
+Containerized and deployed AI inference services using Docker, Kubernetes (EKS), ONNX, and TensorRT with FastAPI microservices, reducing model inference latency by 48% and cloud compute costs by 32% through GPU optimization, model quantization, and knowledge distillation techniques.
+Generative AI Engineer 								        Oct 2024 – Oct 2025
+Fiserv, Inc, Overland Park, KS
+Designed LLM-powered chatbots with BERT, LangChain, and Hugging Face to automate compliance queries, reducing manual processing time for regulatory requests by 60%.
+Orchestrated retraining workflows using MLflow and Kubeflow, enabling continuous risk model updates and accelerating deployment cycles by 40%.
+Engineered real-time fraud detection pipelines with Apache Spark and Kafka using LLM-based vector representations, boosting anomaly detection rates in financial streams by 25%.
+Transitioned legacy inference models to AWS SageMaker with ONNX and TensorRT containers, cutting prediction latency by 35% in client-facing decision systems.
+Built SHAP- and LIME-enabled dashboards to interpret credit scoring predictions, helping auditors surface data bias and meet explainability standards for regulatory audits.
+Developed intelligent advisory tools by integrating Pinecone, OpenAI GPT-4, and LangChain, increasing semantic response accuracy and client satisfaction by 40%.
+Constructed interconnected financial knowledge graphs with Neo4j and RDF triples, allowing investment analysts to retrieve risk-linked insights 50% faster.
+Automated deployment monitoring using Jenkins, Prometheus, and GitHub Actions, maintaining 99.9% uptime for AI services through real-time retraining alerts and health checks.
+Machine Learning Engineer                                                                                                                                    Oct 2023 - Sept 2024
+Textron Aviation, Wichita, KS
+Processed over 100TB of structured and unstructured claims data using Apache Spark and Hadoop to extract fraud indicators, increasing detection accuracy by 20% in policy audits.
+Built Kafka and Airflow-based streaming architecture to support real-time claim event tracking, reducing alert latency by 50% across customer service pipelines.
+Created deep learning models in PyTorch and TensorFlow for customer churn prediction and underwriting score calibration, improving decision precision by 18%.
+Integrated CI/CD workflows using Jenkins and GitHub Actions to automate deployment of SageMaker and Vertex AI models, decreasing rollout cycles for ML updates.
+Provisioned cloud infrastructure using Terraform and scaled model inference environments on Kubernetes, cutting AWS compute costs by 25% during peak processing hours.
+Served ML models through REST and GraphQL APIs using FastAPI, enhancing system interactivity with internal underwriting and claim management platforms.
+Developed real-time portfolio dashboards in Power BI and Looker using model-driven insights, accelerating risk reporting and financial reviews by 30%.
+Enabled consistent production observability by embedding Prometheus and ELK stack into pipeline stages, reducing downtime and speeding up anomaly response across services.
+Data Scientist                                  							       Feb 2021 - June 2023
+Lowe’s - Bangalore, India
+Built customer segmentation models using Keras and Hugging Face Transformers to analyze behavioral data, enabling marketing campaigns to deliver 20% more personalized recommendations across digital channels.
+Developed real-time fraud detection pipelines using Apache Kafka and Flink to analyze streaming payment events, which cut false positive rates by 30% and improved transaction approval accuracy.
+Designed interactive dashboards in Tableau and Plotly by integrating store performance, inventory, and sales metrics, helping leadership respond 25% faster to operational disruptions.
+Automated ML pipeline orchestration using Apache Airflow and GitLab CI/CD to streamline model training and deployment, reducing manual effort and accelerating model refresh cycles by 35%.
+Scaled inference workloads using Docker and Kubernetes clusters for high availability in retail analytics.
+Accelerated ETL pipelines with Apache NiFi and Spark, increasing throughput by 45%.
+Delivered insight engines with vector-based retrieval using FAISS and RAG, enabling document search across enterprise knowledge bases.
+Data Scientist                                                                             					         Oct 2019 - Jan 2021
+Siemens - Bangalore, India
+Containerized legacy analytics dashboards using Kubernetes and migrated them to AWS EKS, improving system scalability and achieving 98% global uptime.
+Consolidated genomic and clinical datasets into Snowflake, enabling secure, cross-functional data exploration and faster analysis for biomedical researchers.
+Optimized query performance by restructuring unstructured data pipelines in Cassandra and MongoDB, reducing retrieval time for clinical markers by 40%.
+Implemented a real-time adverse event detection pipeline with Apache Pulsar and Flink, ensuring sub-second alerting during patient monitoring.
+Accelerated ML deployment cycles by integrating Jenkins with Dockerized services, reducing delays in pushing predictive models into production by 35%.
+Automated ingestion and transformation of research data using Apache Airflow, allowing data science teams to focus on model development instead of pipeline maintenance.
+Established reproducible data schemas and metadata controls in Snowflake, supporting regulatory audit readiness and improving transparency across clinical studies.
+Created SQL-based analytics layers and materialized views to support live dashboards for trial data, enhancing visibility into patient outcomes and protocol adherence.
+PROJECT HIGHLIGHTS
+Real-Time RAG Advisor Platform
+Developed a retrieval-augmented generation system using LangChain, OpenAI GPT-4, and Pinecone to deliver personalized investment insights based on compliance documents and portfolio data.
+Indexed vector embeddings using FAISS and built semantic ranking pipelines to support client Q&A bots for financial advisors.
+Integrated multi-turn prompting and memory-aware response generation, improving contextual relevance by 65% in chatbot queries.
+Diffusion-Based Image Generation Pipeline
+Built a text-to-image synthesis system using Stable Diffusion and DreamBooth, fine-tuned on branded product datasets for marketing personalization.
+Orchestrated the training workflow on AWS EC2 with distributed training via PyTorch Lightning and DDP, reducing training time by 40%.
+Packaged outputs via Streamlit and Gradio to create an internal web tool used by design and branding teams.
+LLM-Powered Credit Risk Modeling Framework
+Leveraged domain-specific transformer models with SHAP-based explainability for regulatory-aligned credit scoring in retail banking.
+Integrated LIME and Fairlearn to expose hidden biases, improving fairness metrics and meeting audit transparency standards.
+Deployed pipeline with Kubeflow and Airflow to automate retraining cycles and compliance drift monitoring.
+EDUCATION
+Master of Science in Computer Science          						      Aug 2023 – May 2025
+University of Central Missouri, Lee’s Summit, KS
+Certifications
+AWS CERTIFIED DATA ENGINEER – ASSOCIATE
+MICROSOFT CERTIFIED: AZURE AI ENGINEER ASSOCIATE

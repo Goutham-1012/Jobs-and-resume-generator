@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Job Scraper Dashboard</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>🧲 Job Scraper Dashboard</h1>
+    <span class="sub">Apify · LinkedIn · Indeed · Glassdoor · Career Sites</span>
+    <nav class="nav"><a href="/resume">Resume Generator →</a></nav>
+  </header>
+
+  <section class="panel">
+    <div class="form-grid">
+      <label>Keywords / Job titles (comma-separated)
+        <input id="keywords" type="text" placeholder="e.g. AI Engineer, Data Scientist"
+               value="AI Engineer, Machine Learning Engineer, Data Scientist, Data Engineer, AI/ML Engineer">
+      </label>
+      <label>Location
+        <input id="location" type="text" placeholder="e.g. United States" value="United States">
+      </label>
+      <label>Jobs per source (shared)
+        <input id="limit" type="number" min="1" value="25">
+      </label>
+      <label>Posted within (shared)
+        <select id="maxAge">
+          <option value="1" selected>Last 24 hours</option>
+          <option value="3">Last 3 days</option>
+          <option value="7">Last 7 days</option>
+          <option value="14">Last 14 days</option>
+          <option value="">Any time</option>
+        </select>
+      </label>
+    </div>
+
+    <fieldset class="sources">
+      <legend>Sources</legend>
+      {% for key, cfg in sources.items() %}
+      <label class="chk"><input type="checkbox" class="source" value="{{ key }}" checked> {{ cfg.label }}</label>
+      {% endfor %}
+    </fieldset>
+
+    <button id="scrapeBtn">Scrape Jobs</button>
+    <div id="status" class="status"></div>
+  </section>
+
+  <section class="panel">
+    <div class="toolbar">
+      <input id="search" type="text" placeholder="Filter results…">
+      <select id="sourceFilter">
+        <option value="">All sources</option>
+        {% for key, cfg in sources.items() %}
+        <option value="{{ cfg.label }}">{{ cfg.label }}</option>
+        {% endfor %}
+      </select>
+      <select id="runFilter"><option value="">All runs</option></select>
+      <span id="counts" class="counts"></span>
+    </div>
+
+    <table id="jobsTable">
+      <thead>
+        <tr>
+          <th data-sort="title">Title</th>
+          <th data-sort="company">Company</th>
+          <th data-sort="location">Location</th>
+          <th data-sort="salary">Salary</th>
+          <th data-sort="source">Source</th>
+          <th data-sort="posted_date">Posted ▾</th>
+          <th>Link</th>
+        </tr>
+      </thead>
+      <tbody id="jobsBody"></tbody>
+    </table>
+    <div id="empty" class="empty">No jobs yet — run a scrape above.</div>
+  </section>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
