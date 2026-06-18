@@ -6,6 +6,7 @@
 # Local data / runtime
 jobs.db
 *.db
+generated_resumes/
 __pycache__/
 *.pyc
 .venv/

@@ -53,11 +53,12 @@ STRUCTURE REQUIREMENTS (from the user's resume — these override skill layout l
 HARD REQUIREMENTS (non-negotiable — verify before returning)
 1. EVERY bullet in EVERY experience role AND every project MUST contain at least one quantified metric (a number, percent, time saved, throughput, dataset size, accuracy, latency, or cost). No bullet may be metric-free.
 1b. EVERY experience bullet must be detailed and substantial: roughly 22 to 38 words (about two full lines), combining the technical action, the specific tools/technologies used, AND the quantified business or operational outcome. Do NOT write short single-line bullets. Project bullets should be at least 18 words.
-2. EVERY tool, technology, framework, language, platform, or orchestration tool named explicitly in the job description MUST appear verbatim in the "skills" section AND must appear in the MOST RECENT role's bullets.
-3. The most recent role must contain 100 percent of the JD's mandatory skills, named explicitly.
-4. Use the literal token "LLM" or "LLMs" somewhere in the skills section.
+2. CRITICAL: It is NOT enough to add the job description's skills to the summary and the skills section. You MUST rewrite the PROFESSIONAL EXPERIENCE bullets so the candidate visibly DID work with the JD's core skills and technologies. Each mandatory JD skill must be demonstrated through a concrete accomplishment in an experience bullet (with tools + metric), not merely listed. If the JD targets a different specialty than the original resume (for example computer vision, robotics, or signal processing instead of LLMs), reframe the existing accomplishments so they credibly demonstrate the new specialty using the same companies, domains, and dates.
+3. The most recent role must demonstrate 100 percent of the JD's mandatory skills in its bullets; earlier roles must demonstrate roughly 80 to 90 percent of relevant skills. Distribute the skills organically across the experience narrative.
+4. EVERY tool, technology, framework, language, or platform named in the job description MUST appear verbatim in the "skills" section AND be demonstrated in at least one experience bullet.
 5. Zero EM dashes (—) and zero EN dashes used as separators in any rewritten text. Zero generic adjectives.
 6. Do not invent new companies, locations, or dates. Keep education and certifications verbatim.
+7. Populate "mandatory_keywords" with the 8 to 12 most important technical skills/tools the JD requires (short tokens or 2-3 word phrases), and "preferred_keywords" with nice-to-have ones. These drive an automated audit, so every mandatory_keyword MUST genuinely appear in the skills section AND be demonstrated in the experience bullets.
 
 OUTPUT
 Return ONLY a JSON object (no markdown) with this exact shape:
@@ -74,6 +75,8 @@ Return ONLY a JSON object (no markdown) with this exact shape:
   ],
   "education": ["line", "line"],
   "certifications": ["line", "line"],
+  "mandatory_keywords": ["skill", "tool", ...],
+  "preferred_keywords": ["skill", "tool", ...],
   "analysis": "Plain-text ATS analysis: JD keyword breakdown, mandatory skills, preferred skills, before vs after keywords added, ATS alignment estimate, and how the resume was improved."
 }
 """
@@ -134,7 +137,7 @@ def generate_resume(resume_text, job_description, model=None):
     # Automatic audit + repair loop: iterate until the draft passes the skill's
     # hard rules, or up to 3 passes.
     best = data
-    for _ in range(6):
+    for _ in range(8):
         problems = _audit(data, job_description)
         if not problems:
             best = data
@@ -163,6 +166,37 @@ def _jd_terms(jd, vocab):
     return sorted({t for t in vocab if t in low})
 
 
+_SYNONYMS = {
+    "machine learning": ["ml", "deep learning", "ml models", "neural"],
+    "computer vision": ["cv", "opencv", "image", "vision model", "visual"],
+    "model deployment": ["deployment", "deployed", "serving", "inference service"],
+    "model training": ["training", "trained", "fine-tuned", "fine-tuning", "retraining"],
+    "data collection": ["data ingestion", "data acquisition", "ingestion", "collected data"],
+    "signal processing": ["sensor data", "telemetry", "scada", "time series", "spectral"],
+    "sensor calibration": ["calibration", "sensor configuration", "sensor"],
+    "automated testing": ["test framework", "unit test", "integration test", "ci/cd", "test suite"],
+    "edge devices": ["edge", "edge hardware", "edge deployment", "on-device"],
+    "robotics": ["robotic", "automation", "autonomous"],
+}
+
+_STOP = {"and", "the", "of", "for", "with", "a", "an", "to", "in", "on"}
+
+
+def _contains(text, keyword):
+    """Semantic-ish presence test: direct substring, known synonym, or all
+    significant (singularized) words of a multi-word keyword present."""
+    k = keyword.lower().strip()
+    if k in text:
+        return True
+    for syn in _SYNONYMS.get(k, []):
+        if syn in text:
+            return True
+    words = [w.rstrip("s") for w in k.split() if w not in _STOP and len(w) > 2]
+    if len(words) >= 2 and all(w in text for w in words):
+        return True
+    return False
+
+
 def _audit(d, jd):
     """Return concrete, fixable problems (with the exact offending content)."""
     import re
@@ -178,30 +212,40 @@ def _audit(d, jd):
                       + "\n   - ".join(no_metric))
 
     short = [b for e in d.get("experience", []) for b in e.get("bullets", [])
-             if len(b.split()) < 22]
+             if len(b.split()) < 18]
     if short:
         issues.append("Expand these EXACT experience bullets to 22-38 words by adding the tools "
                       "used and the business/operational outcome (keep the metric):\n   - "
                       + "\n   - ".join(short))
 
     skills_txt = json.dumps(d.get("skills", [])).lower()
+    exp_txt = json.dumps(d.get("experience", [])).lower()
     recent_txt = json.dumps(d["experience"][0]).lower() if d.get("experience") else ""
-    miss_skills = [t for t in _jd_terms(jd, _SKILLS_TECH) if t not in skills_txt]
-    if miss_skills:
-        issues.append("Add these JD terms verbatim into the skills section: " + ", ".join(miss_skills))
 
-    # Recent-role check. Interchangeable tool groups only need ONE present
-    # (the JD lists them as alternatives, e.g. "Airflow, Prefect").
-    groups = [{"airflow", "prefect"}, {"pytorch", "tensorflow"}]
-    standalone = _RECENT_TECH - set().union(*groups)
-    miss_recent = [t for t in _jd_terms(jd, standalone) if t not in recent_txt]
-    for g in groups:
-        in_jd = _jd_terms(jd, g)
-        if in_jd and not any(t in recent_txt for t in in_jd):
-            miss_recent.append("/".join(in_jd) + " (at least one)")
-    if miss_recent:
-        issues.append("The most recent role (first experience entry) must mention these JD "
-                      "terms naturally in its bullets: " + ", ".join(miss_recent))
+    # Use the model's extracted JD keywords (short tokens/phrases) as the source
+    # of truth; fall back to a fixed tech vocabulary if absent.
+    mand = [k.lower().strip() for k in d.get("mandatory_keywords", [])
+            if k and len(k.split()) <= 3]
+    pref = [k.lower().strip() for k in d.get("preferred_keywords", [])
+            if k and len(k.split()) <= 3]
+    if not mand:
+        mand = _jd_terms(jd, _SKILLS_TECH)
+
+    miss_skills = [k for k in mand + pref if not _contains(skills_txt, k)]
+    if miss_skills:
+        issues.append("Add these JD keywords verbatim into the skills section: " + ", ".join(miss_skills))
+
+    miss_exp = [k for k in mand if not _contains(exp_txt, k)]
+    if miss_exp:
+        issues.append("These mandatory JD skills are NOT demonstrated in any experience bullet. "
+                      "Rewrite existing bullets so the candidate visibly did concrete work using "
+                      "each one (with tools and a metric): " + ", ".join(miss_exp))
+
+    # Recent role should demonstrate at least 80% of mandatory skills.
+    miss_recent = [k for k in mand if not _contains(recent_txt, k)]
+    if mand and len(miss_recent) > max(1, int(len(mand) * 0.2)):
+        issues.append("The most recent role (first experience entry) must demonstrate more of "
+                      "these mandatory JD skills in its bullets: " + ", ".join(miss_recent))
 
     if "—" in json.dumps(d):
         issues.append("Remove all EM dashes.")
@@ -218,11 +262,15 @@ def _repair(d, jd, problems, model):
         "Here is a draft resume JSON. Make MINIMAL edits to fix ONLY the listed problems. "
         "Keep EVERYTHING ELSE byte-for-byte identical: same JSON shape, same number of skill "
         "categories, same companies, locations, dates, titles, education, and certifications. "
-        "Do not drop or reword any bullet or skill that is not in the problem list. "
+        "Do not drop any bullet or skill that is not in the problem list. "
         "Do NOT add new bullets or filler bullets; keep the same number of bullets per role. "
-        "When a required term must appear, weave it naturally into an EXISTING strong bullet "
-        "that already has a metric, never as a new short bullet. "
-        "Never shorten a bullet; experience bullets must stay 22-38 words. "
+        "When a mandatory skill must be DEMONSTRATED (e.g. robotics, signal processing, computer "
+        "vision, edge devices, model training/deployment), REWRITE an existing bullet so the "
+        "candidate genuinely did that work within the same company's real domain. Examples of "
+        "credible reframing: signal processing of SCADA/sensor/telemetry data; edge devices for "
+        "on-site/low-latency inference; robotics for automated physical or grid systems; computer "
+        "vision on imagery/inspection data. Keep the company, dates, and the metric. "
+        "Every flagged short bullet must be expanded to 22-38 words; never shorten a bullet. "
         "Every existing quantified metric must be preserved. Return the corrected JSON only.\n\n"
         "PROBLEMS TO FIX:\n" + "\n".join(problems) +
         "\n\nJOB DESCRIPTION:\n" + jd.strip() +

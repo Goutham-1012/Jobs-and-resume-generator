@@ -57,7 +57,7 @@ async function generate() {
     lastData = data.data;
     $("output").textContent = data.preview;
     $("outputPanel").style.display = "block";
-    setStatus("Done. Download the .docx to get your exact format.");
+    setStatus("Done. Auto-saved to: " + (data.savedPath || "generated_resumes/"));
     $("outputPanel").scrollIntoView({ behavior: "smooth" });
   } catch (e) {
     setStatus("Request failed: " + e.message);
@@ -83,11 +83,36 @@ $("dlBtn").addEventListener("click", async () => {
   });
   if (!r.ok) { setStatus("Download failed."); return; }
   const blob = await r.blob();
+  const filename = (lastData.name || "resume").replace(/ /g, "_") + "_tailored.docx";
+
+  // Chrome/Edge: native "Save As" dialog so the user picks the location.
+  if (window.showSaveFilePicker) {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: filename,
+        types: [{
+          description: "Word Document",
+          accept: { "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"] },
+        }],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      setStatus("Saved.");
+      return;
+    } catch (e) {
+      if (e.name === "AbortError") { setStatus("Save cancelled."); return; }
+      // otherwise fall through to the classic download
+    }
+  }
+
+  // Fallback (Firefox/Safari): normal download. Enable "Ask where to save
+  // each file" in browser settings to get a chooser here too.
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = (lastData.name || "resume").replace(/ /g, "_") + "_tailored.docx";
+  a.download = filename;
   a.click();
-  setStatus("Downloaded.");
+  setStatus("Downloaded (check your browser's download folder).");
 });
 
 loadBaseResume();

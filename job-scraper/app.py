@@ -1,5 +1,6 @@
 """Flask backend: scrape orchestration + dashboard API."""
 import os
+from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify, render_template
@@ -12,6 +13,19 @@ load_dotenv()
 
 app = Flask(__name__)
 db.init_db()
+
+# Every generated resume is auto-saved here, regardless of download.
+GENERATED_DIR = os.path.join(os.path.dirname(__file__), "generated_resumes")
+os.makedirs(GENERATED_DIR, exist_ok=True)
+
+
+def _save_generated(resume_data):
+    """Render the resume to a timestamped .docx in GENERATED_DIR and return its path."""
+    name = (resume_data.get("name") or "Resume").title().replace(" ", "_")
+    stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    path = os.path.join(GENERATED_DIR, f"{name}_Resume_{stamp}.docx")
+    resume_gen.render_docx(resume_data, path)
+    return path
 
 
 @app.route("/")
@@ -96,7 +110,12 @@ def resume_api():
             data.get("jobDescription", ""),
             model=data.get("model") or None,
         )
-        return jsonify({"data": result, "preview": resume_gen.data_to_text(result)})
+        saved_path = _save_generated(result)
+        return jsonify({
+            "data": result,
+            "preview": resume_gen.data_to_text(result),
+            "savedPath": saved_path,
+        })
     except (ValueError, RuntimeError) as e:
         return jsonify({"error": str(e)}), 400
 
