@@ -45,8 +45,8 @@ PRECEDENCE RULE (read carefully)
 
 STRUCTURE REQUIREMENTS (from the user's resume — these override skill layout limits)
 - "summary": 3 to 4 dense paragraph-style lines (NOT bullets), each one or two sentences, keyword rich.
-- "skills": keep the SAME categorized style as the original, one entry per category formatted as "Category Name: item, item, item". KEEP roughly 12 to 15 categories like the original (do NOT condense to 7). Reorder and augment categories/items to surface the job description's mandatory and preferred keywords first, while staying realistic.
-- "experience": keep every company, location, and date EXACTLY as in the original. Rewrite all bullets (keep a similar count per role, typically 6 to 8 for recent roles). APPLY THE SKILL'S ROLE POSITIONING to titles based on what the JD emphasizes: SQL / reporting / dashboards / KPIs => Data Analyst; ETL / Spark / Airflow pipelines => Data Engineer; data modeling / warehouse / transformations => Analytics Engineer; otherwise keep an AI/ML title. Reposition titles when the JD justifies it; never change the company, location, or dates.
+- "skills": keep the categorized style of the original (one entry per category, "Category Name: item, item, item"), BUT FOCUS THE SECTION ON THE JOB DESCRIPTION. REMOVE categories and individual skills that are not relevant to the target role (for example, drop LLM / RAG / GenAI / knowledge-graph / finance categories when the JD is a computer-vision or robotics role). Keep only JD-relevant categories, reorder them so the most JD-critical appear first, and ADD new JD-specific categories and named tools/methods. Aim for roughly 8 to 12 tightly relevant categories. A focused, pruned skills section ranks better than a long unfocused one. EVERY skills entry MUST be a "Category Name: item, item, item" line that groups related skills; NEVER list a single keyword on its own line. Required JD keywords must be folded into the most appropriate category (for example "Robotics & Automation: Robotics, vision-based automation, robotic workcells").
+- "experience": keep every company, location, and date EXACTLY as in the original. EVERY role MUST have between 6 and 8 bullets (match the original resume's bullet counts; never fewer than 6 per role). When pruning or reframing, replace off-target bullets with JD-relevant ones rather than deleting them, so the count stays 6 to 8. APPLY THE SKILL'S ROLE POSITIONING to titles based on what the JD emphasizes: SQL / reporting / dashboards / KPIs => Data Analyst; ETL / Spark / Airflow pipelines => Data Engineer; data modeling / warehouse / transformations => Analytics Engineer; otherwise keep an AI/ML title. Reposition titles when the JD justifies it; never change the company, location, or dates.
 - "projects": keep the Project Highlights section with project names and rewritten bullets.
 - "education" and "certifications": keep exactly as provided.
 
@@ -58,7 +58,11 @@ HARD REQUIREMENTS (non-negotiable — verify before returning)
 4. EVERY tool, technology, framework, language, or platform named in the job description MUST appear verbatim in the "skills" section AND be demonstrated in at least one experience bullet.
 5. Zero EM dashes (—) and zero EN dashes used as separators in any rewritten text. Zero generic adjectives.
 6. Do not invent new companies, locations, or dates. Keep education and certifications verbatim.
-7. Populate "mandatory_keywords" with the 8 to 12 most important technical skills/tools the JD requires (short tokens or 2-3 word phrases), and "preferred_keywords" with nice-to-have ones. These drive an automated audit, so every mandatory_keyword MUST genuinely appear in the skills section AND be demonstrated in the experience bullets.
+7. Populate "mandatory_keywords" with the 8 to 12 most important technical skills/tools the JD requires (short tokens or 2-3 word phrases), and "preferred_keywords" with nice-to-have ones. These drive an automated audit, so every mandatory_keyword MUST appear VERBATIM in the skills section AND be demonstrated in the experience bullets. Use the JD's exact terminology, not just close synonyms (if the JD says "robotics" and "signal processing", those exact words must appear, not only "computer vision").
+8. PRUNE IRRELEVANCE: Remove or reframe any experience bullet, skill, or project that is not relevant to the target JD. Do not leave off-target content (e.g. credit scoring, financial fraud, knowledge graphs, diffusion image generation) in a resume aimed at a different specialty. Refocus everything on the JD.
+9. DOMAIN CONSISTENCY: Keep each company's real industry domain. Never attribute finance/insurance/claims work to an aviation, energy, or retail employer. Reframe accomplishments within that company's actual industry.
+10. NAME SPECIFIC TOOLS/METHODS that fit the JD's specialty when realistic, e.g. computer vision: YOLO, Faster R-CNN, Mask R-CNN, OpenCV, semantic segmentation; signal processing: FFT, wavelets, Kalman filters, sensor fusion, noise filtering; edge: ONNX Runtime, TensorRT, quantization. Spread these across skills and experience.
+11. Write proof-based bullets. Vary sentence structure and do NOT echo the job description's phrasing verbatim; demonstrate the skill through a concrete accomplishment instead.
 
 OUTPUT
 Return ONLY a JSON object (no markdown) with this exact shape:
@@ -197,6 +201,28 @@ def _contains(text, keyword):
     return False
 
 
+# Core skills that are relevant to almost any engineering JD (never pruned).
+_ALWAYS_RELEVANT = {"python", "sql", "java", "javascript", "c++", "git", "docker",
+                    "kubernetes", "aws", "azure", "gcp", "cloud", "linux", "rest",
+                    "api", "apis", "ci/cd", "bash", "scala", "go"}
+
+
+def _irrelevant_skill_lines(d, jd, mand, pref):
+    """Flag skill category lines whose items share NO token with the JD,
+    the extracted keywords, or the always-relevant core set."""
+    import re
+    relevant = set(re.findall(r"[a-z][a-z0-9\+\#\.]{2,}", jd.lower()))
+    relevant |= _ALWAYS_RELEVANT
+    for k in mand + pref:
+        relevant |= {w.rstrip("s") for w in k.lower().split()}
+    bad = []
+    for line in d.get("skills", []):
+        tokens = {w.rstrip("s") for w in re.findall(r"[a-z][a-z0-9\+\#\.]{2,}", line.lower())}
+        if tokens and not (tokens & relevant) and not any(t in relevant for t in tokens):
+            bad.append(line)
+    return bad
+
+
 def _audit(d, jd):
     """Return concrete, fixable problems (with the exact offending content)."""
     import re
@@ -210,6 +236,13 @@ def _audit(d, jd):
         issues.append("Rewrite these EXACT bullets to include a realistic quantified metric "
                       "(percent, time, volume, accuracy), keeping their meaning:\n   - "
                       + "\n   - ".join(no_metric))
+
+    too_few = [f"{e.get('title','?')} ({len(e.get('bullets', []))} bullets)"
+               for e in d.get("experience", []) if len(e.get("bullets", [])) < 6]
+    if too_few:
+        issues.append("These roles have too few bullets. Each experience role must have 6 to 8 "
+                      "substantial JD-relevant bullets (add credible ones with tools + a metric, "
+                      "reframing real work; do not delete to fewer than 6): " + ", ".join(too_few))
 
     short = [b for e in d.get("experience", []) for b in e.get("bullets", [])
              if len(b.split()) < 18]
@@ -231,9 +264,26 @@ def _audit(d, jd):
     if not mand:
         mand = _jd_terms(jd, _SKILLS_TECH)
 
-    miss_skills = [k for k in mand + pref if not _contains(skills_txt, k)]
+    # Skills section must contain mandatory keywords VERBATIM (exact terms rank best);
+    # preferred keywords may match via synonym.
+    miss_skills = [k for k in mand if k not in skills_txt]
+    miss_skills += [k for k in pref if not _contains(skills_txt, k)]
     if miss_skills:
         issues.append("Add these JD keywords verbatim into the skills section: " + ", ".join(miss_skills))
+
+    # Skill entries must be "Category: items" lines, not bare keywords.
+    bare = [s for s in d.get("skills", []) if ":" not in s or not s.split(":", 1)[1].strip()]
+    if bare:
+        issues.append("These skills are bare keywords, not 'Category: items' lines. Fold each "
+                      "into an appropriate category grouped with related skills (e.g. put "
+                      "'Robotics' inside a 'Robotics & Automation: ...' line); never list a "
+                      "keyword on its own line: " + ", ".join(bare))
+
+    # Prune skill categories that have no relevance to the JD at all.
+    irrelevant = _irrelevant_skill_lines(d, jd, mand, pref)
+    if irrelevant:
+        issues.append("REMOVE these skill categories entirely — they are not relevant to this "
+                      "JD and dilute the match:\n   - " + "\n   - ".join(irrelevant))
 
     miss_exp = [k for k in mand if not _contains(exp_txt, k)]
     if miss_exp:
@@ -260,10 +310,12 @@ def _repair(d, jd, problems, model):
     """Send the draft back to the model with a targeted fix list."""
     msg = (
         "Here is a draft resume JSON. Make MINIMAL edits to fix ONLY the listed problems. "
-        "Keep EVERYTHING ELSE byte-for-byte identical: same JSON shape, same number of skill "
-        "categories, same companies, locations, dates, titles, education, and certifications. "
-        "Do not drop any bullet or skill that is not in the problem list. "
-        "Do NOT add new bullets or filler bullets; keep the same number of bullets per role. "
+        "Keep EVERYTHING ELSE byte-for-byte identical: same JSON shape, same companies, "
+        "locations, dates, titles, education, and certifications. "
+        "If a problem says to REMOVE a skill category, delete that exact category line from "
+        "the skills array. If a problem says a role has too few bullets, ADD credible JD-relevant "
+        "bullets (with tools and a metric, 22-38 words) so that role has 6 to 8 bullets. "
+        "Otherwise do not drop any bullet or skill not in the problem list, and do not add filler. "
         "When a mandatory skill must be DEMONSTRATED (e.g. robotics, signal processing, computer "
         "vision, edge devices, model training/deployment), REWRITE an existing bullet so the "
         "candidate genuinely did that work within the same company's real domain. Examples of "
