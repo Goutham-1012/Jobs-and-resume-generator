@@ -18,6 +18,10 @@ EMAIL = "gunnalagouthamreddy0@gmail.com"
 PHONE = "913-406-5191"
 HYPERLINK_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink"
 
+# Every one of these companies must remain in the experience section (no role may be
+# dropped during rewriting). Distinctive substrings of the real employers.
+EXPECTED_COMPANIES = ["NextEra", "Fiserv", "Textron", "Lowe", "Siemens"]
+
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 DEFAULT_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o")
 
@@ -140,24 +144,29 @@ def generate_resume(resume_text, job_description, model=None):
     content = resp.json()["choices"][0]["message"]["content"]
     data = json.loads(content)
 
-    # Automatic audit + repair loop: iterate until the draft passes the skill's
-    # hard rules, or up to 3 passes.
+    # Automatic audit + repair loop. Keep iterating until the draft passes the hard
+    # rules AND reaches the ATS floor, or until the pass budget is exhausted. Always
+    # return the best draft seen, ranked by (fewest problems, highest ATS score).
+    def _key(d):
+        return (len(_audit(d, job_description)), -ats_score(d, job_description))
+
     best = data
-    for _ in range(10):
+    best_key = _key(data)
+    for _ in range(12):
         problems = _audit(data, job_description)
-        if not problems:
+        if not problems and ats_score(data, job_description) >= ATS_FLOOR:
             best = data
             break
-        # Keep the draft with the fewest outstanding problems as a fallback.
-        if len(problems) <= len(_audit(best, job_description)):
-            best = data
         data = _repair(data, job_description, problems, model or DEFAULT_MODEL)
-    else:
-        # Loop exhausted: return whichever draft had the fewest problems.
-        if len(_audit(data, job_description)) <= len(_audit(best, job_description)):
-            best = data
+        k = _key(data)
+        if k < best_key:
+            best, best_key = data, k
+
+    best["ats_score"] = ats_score(best, job_description)
     return best
 
+
+ATS_FLOOR = 85  # generation keeps repairing until the ATS score reaches this
 
 # Concrete named technologies that, if present in the JD, must surface in the resume.
 _RECENT_TECH = {"python", "sql", "airflow", "prefect", "llm", "llms", "agentic",
@@ -224,6 +233,16 @@ _SYNONYMS = {
     "automated testing": ["test framework", "unit test", "integration test", "ci/cd", "test suite"],
     "edge devices": ["edge", "edge hardware", "edge deployment", "on-device"],
     "robotics": ["robotic", "automation", "autonomous"],
+    "genai": ["generative ai", "gen ai", "gen-ai", "llm", "generative"],
+    "generative ai": ["genai", "gen ai", "llm", "generative"],
+    "llms": ["llm", "large language model", "large language models"],
+    "llm": ["llms", "large language model", "large language models"],
+    "prompt engineering": ["prompt design", "prompting", "prompt-engineering", "prompts"],
+    "cloud platforms": ["aws", "azure", "gcp", "cloud"],
+    "enterprise application integration": ["enterprise integration", "systems integration",
+                                           "enterprise", "integration"],
+    "rag": ["retrieval-augmented", "retrieval augmented", "retrieval-augmented generation"],
+    "agentic frameworks": ["agentic", "agent framework", "multi-agent", "agents"],
 }
 
 _STOP = {"and", "the", "of", "for", "with", "a", "an", "to", "in", "on"}
@@ -266,10 +285,43 @@ def _irrelevant_skill_lines(d, jd, mand, pref):
     return bad
 
 
+def ats_score(d, jd):
+    """Keyword-coverage ATS estimate (0-100): how many JD-named skills appear in the
+    resume, weighted toward demonstrating core specialty skills in experience.
+    A proxy that correlates with external ATS tools, not an identical number."""
+    mand = [k.lower().strip() for k in d.get("mandatory_keywords", [])
+            if k and len(k.split()) <= 3]
+    required = set(mand) | set(_jd_terms(jd, _SKILLS_TECH))
+    if not required:
+        return 100
+    # Score against the actual resume content only (exclude the keyword/analysis fields
+    # so they can't trivially satisfy coverage).
+    content = {k: v for k, v in d.items()
+               if k in ("name", "contact", "summary", "skills",
+                        "experience", "projects", "education", "certifications")}
+    full = json.dumps(content).lower()
+    present = sum(1 for t in required if t in full or _contains(full, t))
+    coverage = present / len(required)
+
+    demo = [k for k in mand if k not in _LISTED_ONLY]
+    exp = json.dumps(d.get("experience", [])).lower()
+    demo_cov = (sum(1 for k in demo if _contains(exp, k)) / len(demo)) if demo else 1.0
+
+    return max(0, min(100, round(100 * (0.75 * coverage + 0.25 * demo_cov))))
+
+
 def _audit(d, jd):
     """Return concrete, fixable problems (with the exact offending content)."""
     import re
     issues = []
+
+    # No original role may be dropped during rewriting.
+    exp_blob = json.dumps(d.get("experience", [])).lower()
+    missing_roles = [c for c in EXPECTED_COMPANIES if c.lower() not in exp_blob]
+    if missing_roles:
+        issues.append("These required roles are MISSING and must be restored with their real "
+                      "company, location, dates, and 6-8 bullets (never drop a role): "
+                      + ", ".join(missing_roles))
 
     no_metric = [b for e in d.get("experience", []) for b in e.get("bullets", [])
                  if not re.search(r"\d", b)]
@@ -357,6 +409,11 @@ def _audit(d, jd):
     bad_adj = [w for w in ("dedicated", "hardworking", "adaptable", "motivated", "team player") if w in full]
     if bad_adj:
         issues.append("Remove generic adjectives: " + ", ".join(bad_adj))
+
+    if ats_score(d, jd) < ATS_FLOOR:
+        issues.append(f"ATS keyword coverage is below the {ATS_FLOOR}% target. Ensure every "
+                      "JD-named skill appears verbatim in the skills section and the core "
+                      "specialty skills are demonstrated in the experience bullets.")
     return issues
 
 
@@ -367,7 +424,9 @@ def _repair(d, jd, problems, model):
         "Keep EVERYTHING ELSE byte-for-byte identical: same JSON shape, same companies, "
         "locations, dates, titles, education, and certifications. "
         "If a problem says to REMOVE a skill category, delete that exact category line from "
-        "the skills array. If a problem says a role has too few bullets, ADD credible JD-relevant "
+        "the skills array. NEVER drop an experience role; every original company must remain "
+        "with its real location and dates. If a problem says a role is missing, restore it with "
+        "6-8 bullets. If a problem says a role has too few bullets, ADD credible JD-relevant "
         "bullets (with tools and a metric, 22-38 words) so that role has 6 to 8 bullets. "
         "Otherwise do not drop any bullet or skill not in the problem list, and do not add filler. "
         "When a mandatory skill must be DEMONSTRATED (e.g. robotics, signal processing, computer "

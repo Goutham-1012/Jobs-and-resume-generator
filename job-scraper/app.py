@@ -28,16 +28,16 @@ def _sanitize(text):
     return cleaned[:40]  # cap length
 
 
-def _log_generation(resume_filename, company, title, job_description):
+def _log_generation(resume_filename, company, title, job_description, ats=""):
     """Append a row to the CSV log; write a header once."""
     import csv
     new_file = not os.path.exists(RESUME_LOG)
     with open(RESUME_LOG, "a", newline="", encoding="utf-8-sig") as f:
         writer = csv.writer(f)
         if new_file:
-            writer.writerow(["Resume File", "Company", "Title", "Job Description"])
-        writer.writerow([resume_filename, (company or "").strip(),
-                         (title or "").strip(), (job_description or "").strip()])
+            writer.writerow(["Resume File", "Company", "Title", "ATS %", "Job Description"])
+        writer.writerow([resume_filename, (company or "").strip(), (title or "").strip(),
+                         str(ats), (job_description or "").strip()])
 
 
 def _save_generated(resume_data, job_description="", company="", title=""):
@@ -62,7 +62,8 @@ def _save_generated(resume_data, job_description="", company="", title=""):
         path = os.path.join(GENERATED_DIR, filename)
         counter += 1
     resume_gen.render_docx(resume_data, path)
-    _log_generation(filename, company, title, job_description)
+    _log_generation(filename, company, title, job_description,
+                    resume_data.get("ats_score", ""))
     return path
 
 
@@ -154,6 +155,7 @@ def resume_api():
             "data": result,
             "preview": resume_gen.data_to_text(result),
             "savedPath": saved_path,
+            "ats": result.get("ats_score"),
         })
     except (ValueError, RuntimeError) as e:
         return jsonify({"error": str(e)}), 400

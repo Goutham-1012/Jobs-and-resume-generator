@@ -81,7 +81,7 @@ function renderQueue() {
     <li class="qitem">
       <span class="qstatus">${ICON[item.status] || ""}</span>
       <span class="qlabel">${esc(label(item))}</span>
-      <span class="qnote">${esc(item.status === "error" ? item.error : (item.savedPath ? item.savedPath.split(/[\\\\/]/).pop() : item.status))}</span>
+      <span class="qnote">${esc(item.status === "error" ? item.error : (item.status === "done" ? `ATS ${item.ats}% · ${item.savedPath.split(/[\\\\/]/).pop()}` : item.status))}</span>
       <span class="qactions">
         ${item.status === "done" ? `<button class="mini" data-dl="${item.id}">Download</button> <button class="mini" data-view="${item.id}">Preview</button>` : ""}
         ${item.status === "queued" ? `<button class="mini" data-rm="${item.id}">Remove</button>` : ""}
@@ -107,6 +107,7 @@ async function generateOne(item) {
     item.data = data.data;
     item.preview = data.preview;
     item.savedPath = data.savedPath;
+    item.ats = data.ats;
     item.status = "done";
   } catch (e) {
     item.status = "error";
