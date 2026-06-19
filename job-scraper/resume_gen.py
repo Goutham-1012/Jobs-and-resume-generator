@@ -18,6 +18,18 @@ EMAIL = "gunnalagouthamreddy0@gmail.com"
 PHONE = "913-406-5191"
 HYPERLINK_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink"
 
+# Static identity / unchanging sections (never vary per JD).
+NAME = "GOUTHAM REDDY GUNNALA"
+CONTACT = "gunnalagouthamreddy0@gmail.com | 913-406-5191 | LinkedIn | GitHub | Portfolio"
+EDUCATION_LINES = [
+    "Master of Science in Computer Science    Aug 2023 - May 2025",
+    "University of Central Missouri, Lee's Summit, KS",
+]
+CERTIFICATIONS_LINES = [
+    "AWS CERTIFIED DATA ENGINEER - ASSOCIATE",
+    "MICROSOFT CERTIFIED: AZURE AI ENGINEER ASSOCIATE",
+]
+
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 DEFAULT_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o")
 
@@ -100,59 +112,190 @@ def load_base_resume():
     return ""
 
 
-def generate_resume(resume_text, job_description, model=None):
-    """Call OpenAI (JSON mode) and return the structured resume dict."""
-    resume_text = (resume_text or "").strip() or load_base_resume()
-    if not resume_text:
-        raise ValueError("Original resume is required.")
-    if not (job_description or "").strip():
-        raise ValueError("Target job description is required.")
-
-    user_msg = (
-        "ORIGINAL RESUME (preserve this exact structure and formatting):\n"
-        f"{resume_text}\n\n"
-        "TARGET JOB DESCRIPTION:\n"
-        f"{job_description.strip()}\n\n"
-        "Rewrite the resume to align with the job description and return the JSON object."
-    )
-
+def _chat_json(system, user, model, temperature=0.4):
+    """One JSON-mode OpenAI call; returns the parsed dict."""
     payload = {
         "model": model or DEFAULT_MODEL,
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_msg},
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
         ],
-        "temperature": 0.4,
+        "temperature": temperature,
         "response_format": {"type": "json_object"},
     }
-
     resp = requests.post(
         OPENAI_URL,
         headers={"Authorization": f"Bearer {get_key()}",
                  "Content-Type": "application/json"},
-        json=payload,
-        timeout=180,
+        json=payload, timeout=180,
     )
     if resp.status_code >= 400:
         raise RuntimeError(f"OpenAI HTTP {resp.status_code}: {resp.text[:300]}")
-    content = resp.json()["choices"][0]["message"]["content"]
-    data = json.loads(content)
+    return json.loads(resp.json()["choices"][0]["message"]["content"])
 
-    # Automatic audit + repair loop: iterate until the draft passes the skill's
-    # hard rules, or up to 3 passes.
+
+def _slice(base, start_marker, end_markers):
+    """Return the text of one resume section sliced from the base resume by heading."""
+    i = base.find(start_marker)
+    if i == -1:
+        return ""
+    i += len(start_marker)
+    j = len(base)
+    for m in end_markers:
+        k = base.find(m, i)
+        if k != -1:
+            j = min(j, k)
+    return base[i:j].strip()
+
+
+# ---------------------------------------------------------------------------
+# Staged pipeline: each stage is conditioned on the finalized earlier sections,
+# preserving cross-section coherence (skills demonstrated in experience, etc.).
+# ---------------------------------------------------------------------------
+def _analyze_jd(jd, model):
+    system = (
+        "You are an ATS analyst. Read the job description and extract its requirements. "
+        "Return JSON: {\"mandatory_keywords\": [the 6 to 8 MOST important, DISTINCT must-have "
+        "skills or technologies], \"preferred_keywords\": [nice-to-have skills/tools], "
+        "\"specialty\": \"the core specialty, e.g. computer vision / data engineering / LLMs\", "
+        "\"domain_notes\": \"industry/domain context\", "
+        "\"title_positioning\": \"one of: Data Analyst, Data Engineer, Analytics Engineer, "
+        "AI/ML Engineer, Software Engineer — whichever the JD emphasizes\"}. "
+        "Rules for mandatory_keywords: pick at most 8; prefer named technologies and concrete "
+        "differentiating skills (e.g. 'Computer Vision', 'Signal Processing', 'PyTorch', 'ONNX'); "
+        "do NOT split one workflow into many generic process words (combine 'model training, "
+        "validation, deployment' into a single skill, do not list each separately). "
+        "Use the JD's exact terminology."
+    )
+    out = _chat_json(system, "JOB DESCRIPTION:\n" + jd.strip(), model, 0.2)
+    out["mandatory_keywords"] = (out.get("mandatory_keywords") or [])[:8]
+    return out
+
+
+def _stage_skills(analysis, base_skills, model):
+    system = (
+        "You write the TECHNICAL SKILLS section of a resume, in the candidate's categorized style "
+        "(each entry 'Category Name: item, item, item'). FOCUS ON THE JOB: keep only JD-relevant "
+        "categories, drop irrelevant ones (e.g. drop LLM/RAG/finance categories for a computer "
+        "vision role), reorder so the most JD-critical appear first, and ADD JD-specific categories "
+        "and named tools/methods. Every mandatory keyword must appear VERBATIM, folded into a "
+        "category where it GENUINELY belongs (items under a category must actually fit that "
+        "category — do not stuff unrelated keywords together; never use a bare keyword line). "
+        "Aim for 8-12 tightly relevant, coherent categories. "
+        "Return JSON: {\"skills\": [\"Category: items\", ...]}."
+    )
+    user = ("JD ANALYSIS:\n" + json.dumps(analysis) +
+            "\n\nCANDIDATE'S ORIGINAL SKILLS (for grounding; prune/reframe to the JD):\n" + base_skills)
+    return _chat_json(system, user, model, 0.3).get("skills", [])
+
+
+def _stage_experience(analysis, skills, base_experience, model):
+    system = (
+        "You rewrite the PROFESSIONAL EXPERIENCE section to PIVOT the candidate toward the JD's "
+        "specialty. Keep every company, location, and date EXACTLY as in the original. Reposition "
+        "titles per the JD's title_positioning when credible. EVERY role must have 6 to 8 bullets. "
+        "AGGRESSIVELY REFRAME: replace bullets about technologies NOT relevant to the JD's "
+        "specialty (for example, for a computer-vision / robotics JD, REMOVE LangChain, RAG, LLM, "
+        "diffusion, and knowledge-graph bullets) with accomplishments that demonstrate the JD's "
+        "mandatory skills, set inside the same company's real industry domain. The MOST RECENT "
+        "role's first three bullets must directly showcase the JD's core specialty and named tools. "
+        "Across the section the most recent role demonstrates 100% of the mandatory keywords, "
+        "earlier roles 80-90%, with a believable progression. Each bullet: 22-38 words, a technical "
+        "action + specific tools/technologies + a quantified outcome (percent/time/volume/accuracy). "
+        "Maintain each company's real domain (never attribute finance/claims work to an aviation or "
+        "energy employer). Write proof-based bullets; do NOT echo the JD's phrasing. No EM dashes, "
+        "no generic adjectives. "
+        "Return JSON: {\"experience\": [{\"title\":..., \"dates\":..., \"company_location\":..., "
+        "\"bullets\": [...]}]}."
+    )
+    user = ("JD ANALYSIS:\n" + json.dumps(analysis) +
+            "\n\nFINALIZED SKILLS (demonstrate these in the bullets):\n" + json.dumps(skills) +
+            "\n\nCANDIDATE'S ORIGINAL EXPERIENCE (keep companies/locations/dates verbatim):\n" + base_experience)
+    return _chat_json(system, user, model, 0.4).get("experience", [])
+
+
+def _stage_summary(analysis, skills, experience, model):
+    system = (
+        "You write the PROFESSIONAL SUMMARY: 3 to 4 dense lines (each one or two sentences), "
+        "keyword-rich and aligned to the JD, reflecting the candidate's finalized skills and "
+        "experience. No generic adjectives (dedicated, motivated, etc.), no EM dashes, no copied "
+        "JD sentences. Return JSON: {\"summary\": [\"line 1\", ...]}."
+    )
+    titles = [f"{e.get('title')} ({e.get('dates')})" for e in experience]
+    user = ("JD ANALYSIS:\n" + json.dumps(analysis) +
+            "\n\nFINALIZED SKILLS:\n" + json.dumps(skills) +
+            "\n\nROLES:\n" + json.dumps(titles))
+    return _chat_json(system, user, model, 0.4).get("summary", [])
+
+
+def _stage_projects(analysis, skills, base_projects, model):
+    if not base_projects.strip():
+        return []
+    system = (
+        "You rewrite the PROJECT HIGHLIGHTS section to align with the JD. Keep project names, "
+        "rewrite bullets (at least 18 words each, with tools + a metric) to demonstrate the "
+        "finalized skills. No EM dashes, no generic adjectives. "
+        "Return JSON: {\"projects\": [{\"name\":..., \"bullets\": [...]}]}."
+    )
+    user = ("JD ANALYSIS:\n" + json.dumps(analysis) +
+            "\n\nFINALIZED SKILLS:\n" + json.dumps(skills) +
+            "\n\nCANDIDATE'S ORIGINAL PROJECTS:\n" + base_projects)
+    return _chat_json(system, user, model, 0.4).get("projects", [])
+
+
+def generate_resume(resume_text, job_description, model=None):
+    """Staged pipeline: analyze JD, then build skills -> experience -> summary ->
+    projects, each conditioned on the finalized earlier sections; finally run the
+    audit + repair loop as a coherence/safety net. Returns the structured dict."""
+    base = (resume_text or "").strip() or load_base_resume()
+    if not base:
+        raise ValueError("Original resume is required.")
+    if not (job_description or "").strip():
+        raise ValueError("Target job description is required.")
+    model = model or DEFAULT_MODEL
+    jd = job_description.strip()
+
+    base_skills = _slice(base, "TECHNICAL SKILLS", ["PROFESSIONAL EXPERIENCE"])
+    base_experience = _slice(base, "PROFESSIONAL EXPERIENCE", ["PROJECT HIGHLIGHTS", "EDUCATION"])
+    base_projects = _slice(base, "PROJECT HIGHLIGHTS", ["EDUCATION", "Certifications"])
+
+    analysis = _analyze_jd(jd, model)
+    skills = _stage_skills(analysis, base_skills, model)
+    experience = _stage_experience(analysis, skills, base_experience, model)
+    summary = _stage_summary(analysis, skills, experience, model)
+    projects = _stage_projects(analysis, skills, base_projects, model)
+
+    data = {
+        "name": NAME,
+        "contact": CONTACT,
+        "summary": summary,
+        "skills": skills,
+        "experience": experience,
+        "projects": projects,
+        "education": EDUCATION_LINES,
+        "certifications": CERTIFICATIONS_LINES,
+        "mandatory_keywords": analysis.get("mandatory_keywords", []),
+        "preferred_keywords": analysis.get("preferred_keywords", []),
+        "analysis": (
+            f"Specialty: {analysis.get('specialty','')}\n"
+            f"Mandatory: {', '.join(analysis.get('mandatory_keywords', []))}\n"
+            f"Preferred: {', '.join(analysis.get('preferred_keywords', []))}\n"
+            f"Domain: {analysis.get('domain_notes','')}"
+        ),
+    }
+
+    # Audit + repair loop as the final coherence/safety net (unchanged).
     best = data
     for _ in range(8):
-        problems = _audit(data, job_description)
+        problems = _audit(data, jd)
         if not problems:
             best = data
             break
-        # Keep the draft with the fewest outstanding problems as a fallback.
-        if len(problems) <= len(_audit(best, job_description)):
+        if len(problems) <= len(_audit(best, jd)):
             best = data
-        data = _repair(data, job_description, problems, model or DEFAULT_MODEL)
+        data = _repair(data, jd, problems, model)
     else:
-        # Loop exhausted: return whichever draft had the fewest problems.
-        if len(_audit(data, job_description)) <= len(_audit(best, job_description)):
+        if len(_audit(data, jd)) <= len(_audit(best, jd)):
             best = data
     return best
 
