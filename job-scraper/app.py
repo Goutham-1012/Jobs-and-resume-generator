@@ -17,14 +17,52 @@ db.init_db()
 # Every generated resume is auto-saved here, regardless of download.
 GENERATED_DIR = os.path.join(os.path.dirname(__file__), "generated_resumes")
 os.makedirs(GENERATED_DIR, exist_ok=True)
+# Excel-openable log of every generated resume and the JD it was tailored for.
+RESUME_LOG = os.path.join(GENERATED_DIR, "resumes_log.csv")
 
 
-def _save_generated(resume_data):
-    """Render the resume to a timestamped .docx in GENERATED_DIR and return its path."""
+def _sanitize(text):
+    """Make a string safe for a filename: keep alphanumerics, collapse the rest to '_'."""
+    import re
+    cleaned = re.sub(r"[^A-Za-z0-9]+", "_", (text or "").strip()).strip("_")
+    return cleaned[:40]  # cap length
+
+
+def _log_generation(resume_filename, company, title, job_description):
+    """Append a row to the CSV log; write a header once."""
+    import csv
+    new_file = not os.path.exists(RESUME_LOG)
+    with open(RESUME_LOG, "a", newline="", encoding="utf-8-sig") as f:
+        writer = csv.writer(f)
+        if new_file:
+            writer.writerow(["Resume File", "Company", "Title", "Job Description"])
+        writer.writerow([resume_filename, (company or "").strip(),
+                         (title or "").strip(), (job_description or "").strip()])
+
+
+def _save_generated(resume_data, job_description="", company="", title=""):
+    """Render the resume to a .docx in GENERATED_DIR, log it, return its path.
+
+    Filename: <Name>_Resume[_<Company>][_<Title>]_<datetime>.docx
+    """
     name = (resume_data.get("name") or "Resume").title().replace(" ", "_")
     stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    path = os.path.join(GENERATED_DIR, f"{name}_Resume_{stamp}.docx")
+    parts = [name, "Resume"]
+    if _sanitize(company):
+        parts.append(_sanitize(company))
+    if _sanitize(title):
+        parts.append(_sanitize(title))
+    parts.append(stamp)
+    base = "_".join(parts)
+    filename = base + ".docx"
+    path = os.path.join(GENERATED_DIR, filename)
+    counter = 2
+    while os.path.exists(path):  # avoid collision on rapid back-to-back saves
+        filename = f"{base}_{counter}.docx"
+        path = os.path.join(GENERATED_DIR, filename)
+        counter += 1
     resume_gen.render_docx(resume_data, path)
+    _log_generation(filename, company, title, job_description)
     return path
 
 
@@ -110,7 +148,8 @@ def resume_api():
             data.get("jobDescription", ""),
             model=data.get("model") or None,
         )
-        saved_path = _save_generated(result)
+        saved_path = _save_generated(result, data.get("jobDescription", ""),
+                                     data.get("company", ""), data.get("title", ""))
         return jsonify({
             "data": result,
             "preview": resume_gen.data_to_text(result),

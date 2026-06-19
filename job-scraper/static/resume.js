@@ -1,5 +1,7 @@
 const $ = (id) => document.getElementById(id);
-let lastData = null;
+let queue = [];        // [{id, jobDescription, company, title, status, data, savedPath, error}]
+let processing = false;
+let nextId = 1;
 
 // Auto-load the user's base resume from the repo so they don't have to paste it.
 async function loadBaseResume() {
@@ -34,58 +36,116 @@ $("jobPicker").addEventListener("change", (e) => {
   if (j) {
     $("jobDescription").value =
       `${j.title}\nCompany: ${j.company || ""}\nLocation: ${j.location || ""}\n\n${j.description || ""}`;
+    if (!$("company").value && j.company) $("company").value = j.company;
+    if (!$("title").value && j.title) $("title").value = j.title;
   }
 });
 
-async function generate() {
-  const btn = $("genBtn");
-  const resume = $("resume").value.trim();
-  const jd = $("jobDescription").value.trim();
-  if (!resume) { setStatus("Paste your resume first."); return; }
-  if (!jd) { setStatus("Add a target job description first."); return; }
+function setStatus(t) { $("status").textContent = t; }
+function esc(s) {
+  return (s == null ? "" : String(s)).replace(/[&<>"]/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
 
-  btn.disabled = true;
-  setStatus("Generating with OpenAI… this can take 20-40 seconds.");
+// ---- Queue management ----
+function addToQueue() {
+  const jd = $("jobDescription").value.trim();
+  if (!jd) { setStatus("Add a job description before queueing."); return; }
+  queue.push({
+    id: nextId++,
+    jobDescription: jd,
+    company: $("company").value.trim(),
+    title: $("title").value.trim(),
+    status: "queued",
+  });
+  // clear the per-item fields, keep the resume
+  $("jobDescription").value = "";
+  $("company").value = "";
+  $("title").value = "";
+  $("jobPicker").value = "";
+  renderQueue();
+  setStatus("Added to queue.");
+}
+
+function label(item) {
+  const parts = [item.company, item.title].filter(Boolean).join(" · ");
+  return parts || `Untitled #${item.id}`;
+}
+
+const ICON = { queued: "⏳", generating: "⚙️", done: "✅", error: "❌" };
+
+function renderQueue() {
+  $("queuePanel").style.display = queue.length ? "block" : "none";
+  $("queueCount").textContent = queue.length;
+  $("queueList").innerHTML = queue.map((item) => `
+    <li class="qitem">
+      <span class="qstatus">${ICON[item.status] || ""}</span>
+      <span class="qlabel">${esc(label(item))}</span>
+      <span class="qnote">${esc(item.status === "error" ? item.error : (item.savedPath ? item.savedPath.split(/[\\\\/]/).pop() : item.status))}</span>
+      <span class="qactions">
+        ${item.status === "done" ? `<button class="mini" data-dl="${item.id}">Download</button> <button class="mini" data-view="${item.id}">Preview</button>` : ""}
+        ${item.status === "queued" ? `<button class="mini" data-rm="${item.id}">Remove</button>` : ""}
+      </span>
+    </li>`).join("");
+}
+
+async function generateOne(item) {
+  item.status = "generating"; renderQueue();
   try {
     const r = await fetch("/api/resume", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ resume, jobDescription: jd }),
+      body: JSON.stringify({
+        resume: $("resume").value.trim(),
+        jobDescription: item.jobDescription,
+        company: item.company,
+        title: item.title,
+      }),
     });
     const data = await r.json();
-    if (!r.ok) { setStatus("Error: " + (data.error || r.status)); return; }
-    lastData = data.data;
-    $("output").textContent = data.preview;
-    $("outputPanel").style.display = "block";
-    setStatus("Done. Auto-saved to: " + (data.savedPath || "generated_resumes/"));
-    $("outputPanel").scrollIntoView({ behavior: "smooth" });
+    if (!r.ok) throw new Error(data.error || ("HTTP " + r.status));
+    item.data = data.data;
+    item.preview = data.preview;
+    item.savedPath = data.savedPath;
+    item.status = "done";
   } catch (e) {
-    setStatus("Request failed: " + e.message);
-  } finally {
-    btn.disabled = false;
+    item.status = "error";
+    item.error = e.message;
   }
+  renderQueue();
 }
 
-function setStatus(t) { $("status").textContent = t; }
+async function generateAll() {
+  if (processing) return;
+  if (!$("resume").value.trim()) { setStatus("Paste your resume first."); return; }
+  const pending = queue.filter((i) => i.status === "queued" || i.status === "error");
+  if (!pending.length) { setStatus("Nothing queued to generate."); return; }
+  processing = true;
+  $("genAllBtn").disabled = true;
+  $("addBtn").disabled = true;
+  let done = 0;
+  for (const item of pending) {
+    setStatus(`Generating ${++done}/${pending.length}: ${label(item)}… (keep this tab open)`);
+    await generateOne(item);
+  }
+  processing = false;
+  $("genAllBtn").disabled = false;
+  $("addBtn").disabled = false;
+  const ok = queue.filter((i) => i.status === "done").length;
+  setStatus(`Finished. ${ok} resume(s) generated and auto-saved to generated_resumes/.`);
+}
 
-$("genBtn").addEventListener("click", generate);
-$("copyBtn").addEventListener("click", () => {
-  navigator.clipboard.writeText($("output").textContent);
-  setStatus("Copied to clipboard.");
-});
-$("dlBtn").addEventListener("click", async () => {
-  if (!lastData) { setStatus("Generate a resume first."); return; }
+// ---- Download / preview ----
+async function downloadDocx(data) {
   setStatus("Building .docx…");
   const r = await fetch("/api/resume/download", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ data: lastData }),
+    body: JSON.stringify({ data }),
   });
   if (!r.ok) { setStatus("Download failed."); return; }
   const blob = await r.blob();
-  const filename = (lastData.name || "resume").replace(/ /g, "_") + "_tailored.docx";
-
-  // Chrome/Edge: native "Save As" dialog so the user picks the location.
+  const filename = (data.name || "resume").replace(/ /g, "_") + "_tailored.docx";
   if (window.showSaveFilePicker) {
     try {
       const handle = await window.showSaveFilePicker({
@@ -95,24 +155,49 @@ $("dlBtn").addEventListener("click", async () => {
           accept: { "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"] },
         }],
       });
-      const writable = await handle.createWritable();
-      await writable.write(blob);
-      await writable.close();
+      const w = await handle.createWritable();
+      await w.write(blob); await w.close();
       setStatus("Saved.");
       return;
     } catch (e) {
       if (e.name === "AbortError") { setStatus("Save cancelled."); return; }
-      // otherwise fall through to the classic download
     }
   }
-
-  // Fallback (Firefox/Safari): normal download. Enable "Ask where to save
-  // each file" in browser settings to get a chooser here too.
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = filename;
   a.click();
   setStatus("Downloaded (check your browser's download folder).");
+}
+
+function showPreview(item) {
+  $("output").textContent = item.preview || "";
+  $("outputPanel").style.display = "block";
+  $("outputPanel").scrollIntoView({ behavior: "smooth" });
+}
+
+// ---- Events ----
+$("addBtn").addEventListener("click", addToQueue);
+$("genAllBtn").addEventListener("click", generateAll);
+$("clearBtn").addEventListener("click", () => {
+  queue = queue.filter((i) => i.status === "generating");
+  renderQueue();
+  setStatus("Queue cleared.");
+});
+$("queueList").addEventListener("click", (e) => {
+  const t = e.target;
+  if (t.dataset.rm) { queue = queue.filter((i) => i.id != t.dataset.rm); renderQueue(); }
+  else if (t.dataset.dl) { const it = queue.find((i) => i.id == t.dataset.dl); if (it) downloadDocx(it.data); }
+  else if (t.dataset.view) { const it = queue.find((i) => i.id == t.dataset.view); if (it) showPreview(it); }
+});
+$("copyBtn").addEventListener("click", () => {
+  navigator.clipboard.writeText($("output").textContent);
+  setStatus("Copied to clipboard.");
+});
+$("dlBtn").addEventListener("click", () => {
+  const lastDone = [...queue].reverse().find((i) => i.status === "done");
+  if (lastDone) downloadDocx(lastDone.data);
+  else setStatus("Generate a resume first.");
 });
 
 loadBaseResume();

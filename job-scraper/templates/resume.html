@@ -18,22 +18,41 @@
       <label>Your current resume (paste plain text)
         <textarea id="resume" rows="16" placeholder="Paste your full resume here…"></textarea>
       </label>
-      <label>Target job description
-        <div class="jd-tools">
-          <select id="jobPicker"><option value="">— or load from a scraped job —</option></select>
+      <div>
+        <label>Target job description
+          <div class="jd-tools">
+            <select id="jobPicker"><option value="">— or load from a scraped job —</option></select>
+          </div>
+          <textarea id="jobDescription" rows="9" placeholder="Paste the job description here, or pick a scraped job above…"></textarea>
+        </label>
+        <div class="meta-row">
+          <label>Company <span class="opt">(optional)</span>
+            <input id="company" type="text" placeholder="e.g. Amazon">
+          </label>
+          <label>Title <span class="opt">(optional)</span>
+            <input id="title" type="text" placeholder="e.g. ML SDE-2">
+          </label>
         </div>
-        <textarea id="jobDescription" rows="14" placeholder="Paste the job description here, or pick a scraped job above…"></textarea>
-      </label>
+      </div>
     </div>
     <div class="resume-actions">
-      <button id="genBtn">Generate Optimized Resume</button>
+      <button id="addBtn">+ Add to Queue</button>
+      <button id="genAllBtn" class="secondary">Generate All</button>
       <span id="status" class="status"></span>
     </div>
   </section>
 
+  <section class="panel" id="queuePanel" style="display:none">
+    <div class="toolbar">
+      <strong>Queue (<span id="queueCount">0</span>)</strong>
+      <span class="counts"><button id="clearBtn" class="mini">Clear queue</button></span>
+    </div>
+    <ul id="queueList" class="queue"></ul>
+  </section>
+
   <section class="panel" id="outputPanel" style="display:none">
     <div class="toolbar">
-      <strong>Optimized Resume + ATS Analysis</strong>
+      <strong>Preview</strong>
       <span class="counts">
         <button id="copyBtn" class="mini">Copy</button>
         <button id="dlBtn" class="mini">Download .docx</button>

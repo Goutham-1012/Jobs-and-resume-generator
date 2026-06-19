@@ -82,4 +82,13 @@ td a { color: var(--accent); text-decoration: none; }
   font-size: 13px; line-height: 1.55; color: var(--text); margin: 0; max-height: 70vh; overflow: auto; }
 .mini { background: var(--accent-2); border: 1px solid var(--border); color: var(--text);
   padding: 5px 12px; font-size: 12px; font-weight: 500; margin-left: 8px; }
-@media (max-width: 800px) { .resume-grid { grid-template-columns: 1fr; } }
+.meta-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+.opt { color: var(--muted); font-weight: 400; font-size: 11px; }
+button.secondary { background: var(--accent-2); border: 1px solid var(--border); color: var(--text); }
+.queue { list-style: none; margin: 0; padding: 0; }
+.qitem { display: flex; align-items: center; gap: 10px; padding: 9px 6px; border-bottom: 1px solid var(--border); font-size: 13px; }
+.qstatus { width: 18px; text-align: center; }
+.qlabel { font-weight: 600; min-width: 180px; }
+.qnote { color: var(--muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qactions { margin-left: auto; white-space: nowrap; }
+@media (max-width: 800px) { .resume-grid { grid-template-columns: 1fr; } .meta-row { grid-template-columns: 1fr; } }
