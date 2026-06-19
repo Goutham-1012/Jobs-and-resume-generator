@@ -50,6 +50,12 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_jobs_source ON jobs(source);
         """
     )
+    # Migration: add `seen` to pre-existing databases (CREATE TABLE IF NOT EXISTS
+    # won't add new columns to an existing table).
+    try:
+        conn.execute("ALTER TABLE jobs ADD COLUMN seen INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass  # column already exists
     conn.commit()
     conn.close()
 
@@ -145,6 +151,13 @@ def query_jobs(run_id=None, source=None, search=None, sort="scraped_at", order="
     rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
     conn.close()
     return rows
+
+
+def mark_seen(job_id):
+    conn = get_conn()
+    conn.execute("UPDATE jobs SET seen = 1 WHERE id = ?", (job_id,))
+    conn.commit()
+    conn.close()
 
 
 def list_runs():

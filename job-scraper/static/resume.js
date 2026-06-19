@@ -48,9 +48,12 @@ function esc(s) {
 }
 
 // ---- Queue management ----
-function addToQueue() {
+// One "Generate" button: runs immediately if idle, otherwise queues and the
+// processor picks it up automatically when the current generation finishes.
+function enqueue() {
+  if (!$("resume").value.trim()) { setStatus("Paste your resume first."); return; }
   const jd = $("jobDescription").value.trim();
-  if (!jd) { setStatus("Add a job description before queueing."); return; }
+  if (!jd) { setStatus("Add a job description first."); return; }
   queue.push({
     id: nextId++,
     jobDescription: jd,
@@ -64,7 +67,19 @@ function addToQueue() {
   $("title").value = "";
   $("jobPicker").value = "";
   renderQueue();
-  setStatus("Added to queue.");
+  setStatus(processing ? "Queued — will start when the current one finishes." : "Starting…");
+  pump();
+}
+
+// Sequential processor: take the next queued item, generate it, then chain to the next.
+async function pump() {
+  if (processing) return;
+  const next = queue.find((i) => i.status === "queued");
+  if (!next) return;
+  processing = true;
+  await generateOne(next);
+  processing = false;
+  pump();
 }
 
 function label(item) {
@@ -91,6 +106,7 @@ function renderQueue() {
 
 async function generateOne(item) {
   item.status = "generating"; renderQueue();
+  setStatus(`Generating: ${label(item)}… (keep this tab open)`);
   try {
     const r = await fetch("/api/resume", {
       method: "POST",
@@ -109,31 +125,14 @@ async function generateOne(item) {
     item.savedPath = data.savedPath;
     item.ats = data.ats;
     item.status = "done";
+    showPreview(item);
+    setStatus(`✅ ${label(item)}: ATS ${item.ats}% — saved`);
   } catch (e) {
     item.status = "error";
     item.error = e.message;
+    setStatus(`❌ ${label(item)}: ${item.error}`);
   }
   renderQueue();
-}
-
-async function generateAll() {
-  if (processing) return;
-  if (!$("resume").value.trim()) { setStatus("Paste your resume first."); return; }
-  const pending = queue.filter((i) => i.status === "queued" || i.status === "error");
-  if (!pending.length) { setStatus("Nothing queued to generate."); return; }
-  processing = true;
-  $("genAllBtn").disabled = true;
-  $("addBtn").disabled = true;
-  let done = 0;
-  for (const item of pending) {
-    setStatus(`Generating ${++done}/${pending.length}: ${label(item)}… (keep this tab open)`);
-    await generateOne(item);
-  }
-  processing = false;
-  $("genAllBtn").disabled = false;
-  $("addBtn").disabled = false;
-  const ok = queue.filter((i) => i.status === "done").length;
-  setStatus(`Finished. ${ok} resume(s) generated and auto-saved to generated_resumes/.`);
 }
 
 // ---- Download / preview ----
@@ -173,13 +172,13 @@ async function downloadDocx(data) {
 
 function showPreview(item) {
   $("output").textContent = item.preview || "";
+  $("previewAts").textContent = item.ats != null ? `ATS ${item.ats}%` : "";
   $("outputPanel").style.display = "block";
   $("outputPanel").scrollIntoView({ behavior: "smooth" });
 }
 
 // ---- Events ----
-$("addBtn").addEventListener("click", addToQueue);
-$("genAllBtn").addEventListener("click", generateAll);
+$("genBtn").addEventListener("click", enqueue);
 $("clearBtn").addEventListener("click", () => {
   queue = queue.filter((i) => i.status === "generating");
   renderQueue();

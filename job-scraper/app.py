@@ -125,6 +125,12 @@ def jobs():
     })
 
 
+@app.route("/api/jobs/<int:job_id>/seen", methods=["POST"])
+def mark_job_seen(job_id):
+    db.mark_seen(job_id)
+    return jsonify({"ok": True})
+
+
 @app.route("/api/runs")
 def runs():
     return jsonify({"runs": db.list_runs()})

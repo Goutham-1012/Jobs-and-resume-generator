@@ -70,6 +70,13 @@ th:hover { color: var(--text); }
 tbody tr:hover { background: var(--accent-2); }
 td a { color: var(--accent); text-decoration: none; }
 .badge { background: var(--accent-2); border: 1px solid var(--border); border-radius: 6px; padding: 2px 8px; font-size: 12px; }
+.group-header td { background: #11141c; color: var(--muted); font-weight: 700; font-size: 12px;
+  text-transform: uppercase; letter-spacing: .04em; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+tr.unseen { background: rgba(79, 140, 255, 0.06); }
+tr.unseen td:first-child { border-left: 3px solid var(--accent); font-weight: 600; }
+.unseen-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--accent); margin-right: 7px; vertical-align: middle; }
+.unseen-badge { color: var(--accent); border-color: var(--accent); }
 .empty { text-align: center; color: var(--muted); padding: 30px; }
 .nav { margin-left: auto; }
 .nav a { color: var(--accent); text-decoration: none; font-size: 14px; font-weight: 600; }
