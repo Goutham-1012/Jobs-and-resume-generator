@@ -56,6 +56,8 @@ HARD REQUIREMENTS (non-negotiable — verify before returning)
 2. CRITICAL: It is NOT enough to add the job description's skills to the summary and the skills section. You MUST rewrite the PROFESSIONAL EXPERIENCE bullets so the candidate visibly DID work with the JD's core skills and technologies. Each mandatory JD skill must be demonstrated through a concrete accomplishment in an experience bullet (with tools + metric), not merely listed. If the JD targets a different specialty than the original resume (for example computer vision, robotics, or signal processing instead of LLMs), reframe the existing accomplishments so they credibly demonstrate the new specialty using the same companies, domains, and dates.
 3. The most recent role must demonstrate 100 percent of the JD's mandatory skills in its bullets; earlier roles must demonstrate roughly 80 to 90 percent of relevant skills. Distribute the skills organically across the experience narrative.
 4. EVERY tool, technology, framework, language, or platform named in the job description MUST appear verbatim in the "skills" section AND be demonstrated in at least one experience bullet.
+4a. When the JD lists ALTERNATIVES, include ALL named options verbatim, not just one. Examples: "Python or Java" -> list BOTH Python and Java; "AWS, Azure, or GCP" -> list all three. Do not silently drop an option just because the candidate favored another.
+4b. When the JD mentions them, EXPLICITLY include these exact phrases in the skills section and reflect them in the summary/experience: agentic frameworks, SDK and ADK tools, rapid prototyping, solution hardening, secure development standards, responsible AI, data privacy, model governance, enterprise AI collaboration, and internal/business stakeholder engagement. Show stakeholder/enterprise collaboration and regulated-environment delivery inside experience bullets where credible.
 5. Zero EM dashes (—) and zero EN dashes used as separators in any rewritten text. Zero generic adjectives.
 6. Do not invent new companies, locations, or dates. Keep education and certifications verbatim.
 7. Populate "mandatory_keywords" with the 8 to 12 most important technical skills/tools the JD requires (short tokens or 2-3 word phrases), and "preferred_keywords" with nice-to-have ones. These drive an automated audit, so every mandatory_keyword MUST appear VERBATIM in the skills section AND be demonstrated in the experience bullets. Use the JD's exact terminology, not just close synonyms (if the JD says "robotics" and "signal processing", those exact words must appear, not only "computer vision").
@@ -141,7 +143,7 @@ def generate_resume(resume_text, job_description, model=None):
     # Automatic audit + repair loop: iterate until the draft passes the skill's
     # hard rules, or up to 3 passes.
     best = data
-    for _ in range(8):
+    for _ in range(10):
         problems = _audit(data, job_description)
         if not problems:
             best = data
@@ -160,14 +162,55 @@ def generate_resume(resume_text, job_description, model=None):
 # Concrete named technologies that, if present in the JD, must surface in the resume.
 _RECENT_TECH = {"python", "sql", "airflow", "prefect", "llm", "llms", "agentic",
                 "pytorch", "tensorflow", "spark", "kafka", "docker", "kubernetes"}
-_SKILLS_TECH = _RECENT_TECH | {"forecasting", "classification", "optimization",
-                               "statistics", "feature engineering", "orchestration",
-                               "pipelines", "rag", "fine-tuning"}
+# Broader vocabulary required VERBATIM in the skills section when present in the JD.
+# Includes languages/clouds that JDs often list as alternatives ("Python or Java",
+# "AWS, Azure, or GCP") plus common AI-engineering practice phrases reviewers look for.
+_SKILLS_TECH = _RECENT_TECH | {
+    # languages
+    "java", "javascript", "typescript", "c++", "scala", "go", "r",
+    # clouds / infra
+    "aws", "azure", "gcp", "terraform", "ci/cd", "jenkins", "github actions",
+    # ml / genai
+    "forecasting", "classification", "optimization", "statistics",
+    "feature engineering", "orchestration", "pipelines", "rag", "fine-tuning",
+    "langchain", "langgraph", "llamaindex", "prompt engineering", "agentic frameworks",
+    "generative ai", "genai", "nlp", "computer vision", "vector database",
+    "embeddings", "mlops", "mlflow", "sagemaker", "vertex ai", "bedrock",
+    "onnx", "tensorrt", "sdk", "adk",
+    # web / integration
+    "react", "node.js", "fastapi", "rest", "graphql", "microservices", "api",
+    # governance / practices reviewers flag
+    "responsible ai", "model governance", "data privacy", "rapid prototyping",
+    "solution hardening", "secure development", "enterprise", "stakeholder",
+    "regulated", "compliance",
+}
+
+
+# Terms that should be LISTED in skills when the JD names them, but NOT forced to be
+# "demonstrated" in an experience bullet (languages/clouds/infra/web/governance that
+# would be fabrication to claim hands-on in every recent bullet).
+_LISTED_ONLY = {
+    "java", "javascript", "typescript", "c++", "scala", "go", "r",
+    "aws", "azure", "gcp", "terraform", "ci/cd", "jenkins", "github actions",
+    "react", "node.js", "rest", "graphql", "microservices", "api", "sdk", "adk",
+    "responsible ai", "model governance", "data privacy", "rapid prototyping",
+    "solution hardening", "secure development", "enterprise", "stakeholder",
+    "regulated", "compliance",
+}
 
 
 def _jd_terms(jd, vocab):
+    """Return vocab terms present in the JD, matched on alphanumeric boundaries so
+    'go'/'r' don't match inside 'governance' and trailing punctuation (e.g. 'java.')
+    is handled correctly."""
+    import re
     low = jd.lower()
-    return sorted({t for t in vocab if t in low})
+    found = set()
+    for t in vocab:
+        pattern = r"(?<![a-z0-9])" + re.escape(t) + r"(?![a-z0-9])"
+        if re.search(pattern, low):
+            found.add(t)
+    return sorted(found)
 
 
 _SYNONYMS = {
@@ -264,9 +307,15 @@ def _audit(d, jd):
     if not mand:
         mand = _jd_terms(jd, _SKILLS_TECH)
 
-    # Skills section must contain mandatory keywords VERBATIM (exact terms rank best);
+    # Every concrete technology / practice phrase NAMED in the JD must appear in the
+    # skills section verbatim — this catches alternatives the model drops (e.g. it keeps
+    # Python but not Java, AWS but not GCP) and reviewer-flagged phrases (agentic
+    # frameworks, rapid prototyping, etc.). Union with the model's mandatory keywords.
+    jd_required = sorted(set(mand) | set(_jd_terms(jd, _SKILLS_TECH)))
+
+    # Skills section must contain those terms VERBATIM (exact terms rank best);
     # preferred keywords may match via synonym.
-    miss_skills = [k for k in mand if k not in skills_txt]
+    miss_skills = [k for k in jd_required if k not in skills_txt]
     miss_skills += [k for k in pref if not _contains(skills_txt, k)]
     if miss_skills:
         issues.append("Add these JD keywords verbatim into the skills section: " + ", ".join(miss_skills))
@@ -285,15 +334,20 @@ def _audit(d, jd):
         issues.append("REMOVE these skill categories entirely — they are not relevant to this "
                       "JD and dilute the match:\n   - " + "\n   - ".join(irrelevant))
 
-    miss_exp = [k for k in mand if not _contains(exp_txt, k)]
+    # Demonstration in experience is required only for core/demonstrable specialty
+    # skills — NOT for items that just need to be listed (languages, clouds, infra,
+    # governance/practice phrases). Forcing the candidate to "demonstrate" Java/GCP/
+    # responsible-AI in a bullet is unrealistic and hurts credibility.
+    demo_required = [k for k in mand if k not in _LISTED_ONLY]
+    miss_exp = [k for k in demo_required if not _contains(exp_txt, k)]
     if miss_exp:
         issues.append("These mandatory JD skills are NOT demonstrated in any experience bullet. "
                       "Rewrite existing bullets so the candidate visibly did concrete work using "
                       "each one (with tools and a metric): " + ", ".join(miss_exp))
 
-    # Recent role should demonstrate at least 80% of mandatory skills.
-    miss_recent = [k for k in mand if not _contains(recent_txt, k)]
-    if mand and len(miss_recent) > max(1, int(len(mand) * 0.2)):
+    # Recent role should demonstrate at least 80% of the demonstrable specialty skills.
+    miss_recent = [k for k in demo_required if not _contains(recent_txt, k)]
+    if demo_required and len(miss_recent) > max(1, int(len(demo_required) * 0.2)):
         issues.append("The most recent role (first experience entry) must demonstrate more of "
                       "these mandatory JD skills in its bullets: " + ", ".join(miss_recent))
 
