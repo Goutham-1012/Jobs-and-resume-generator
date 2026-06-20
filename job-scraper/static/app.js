@@ -94,8 +94,8 @@ function rowHtml(j) {
     </tr>`;
 }
 
-function groupHeader(text, n) {
-  return `<tr class="group-header"><td colspan="7">${esc(text)} (${n})</td></tr>`;
+function groupHeader(text, n, isNew) {
+  return `<tr class="group-header${isNew ? " group-new" : ""}"><td colspan="7">${esc(text)} · ${n}</td></tr>`;
 }
 
 function renderJobs(jobs) {
@@ -106,10 +106,10 @@ function renderJobs(jobs) {
   const older = jobs.filter((j) => !isNew(j));
   let html = "";
   if (fresh.length)
-    html += groupHeader(`🆕 Newly scraped (run #${state.latestRunId})`, fresh.length) +
+    html += groupHeader(`Newly scraped · run #${state.latestRunId}`, fresh.length, true) +
             fresh.map(rowHtml).join("");
   if (older.length)
-    html += groupHeader("Previously scraped", older.length) + older.map(rowHtml).join("");
+    html += groupHeader("Previously scraped", older.length, false) + older.map(rowHtml).join("");
   body.innerHTML = html;
 }
 
