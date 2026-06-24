@@ -185,6 +185,14 @@ tr.unseen td:first-child { box-shadow: inset 3px 0 0 var(--accent); font-weight:
   font-size: 13px; line-height: 1.6; color: var(--text); margin: 0; max-height: 70vh; overflow: auto;
   background: var(--bg-soft); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 16px;
 }
+.model-row { margin-top: 12px; max-width: 460px; }
+.model-row select { width: 100%; }
+.profile-bar { display: flex; align-items: flex-end; gap: 10px; margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+.profile-bar select { width: 100%; }
+.profile-bar .mini { margin-left: 0; align-self: center; }
+#profileEditor label { margin-bottom: 12px; }
+#profileEditor textarea, #profileEditor input { width: 100%; font-family: inherit; }
+#profileEditor textarea { font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; font-size: 13px; }
 .meta-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
 .opt { color: var(--faint); font-weight: 400; font-size: 11px; }
 
@@ -192,7 +200,16 @@ tr.unseen td:first-child { box-shadow: inset 3px 0 0 var(--accent); font-weight:
 .queue { list-style: none; margin: 0; padding: 0; }
 .qitem { display: flex; align-items: center; gap: 12px; padding: 11px 8px; border-bottom: 1px solid var(--border); font-size: 13px; transition: background .12s; border-radius: 8px; }
 .qitem:hover { background: var(--accent-2); }
+.qitem.draggable { cursor: grab; }
+.qitem.dragging { opacity: .5; background: var(--accent-2); }
+.qitem.drop-before { box-shadow: inset 0 2px 0 var(--accent); }
+.qitem.drop-after { box-shadow: inset 0 -2px 0 var(--accent); }
+.qhandle { width: 14px; color: var(--faint); cursor: grab; user-select: none; }
 .qstatus { width: 18px; text-align: center; font-size: 14px; }
+.scrape-profile { margin: 14px 0; max-width: 420px; }
+.scrape-actions { display: flex; align-items: center; gap: 16px; }
+.nav-link { color: var(--accent); text-decoration: none; font-size: 13px; font-weight: 600; }
+.nav-link:hover { text-decoration: underline; }
 .qlabel { font-weight: 600; min-width: 180px; }
 .qnote { color: var(--muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .qactions { margin-left: auto; white-space: nowrap; }

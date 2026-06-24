@@ -163,9 +163,12 @@ def _keyword_list(p):
     return p.get("keywordList") or ([p["keywords"]] if p.get("keywords") else [])
 
 
-def _keyword_or(p):
-    """Boolean-OR query string for actors that take a single keyword field."""
-    terms = _keyword_list(p)
+def _keyword_or(p, cap=6):
+    """Boolean-OR query string for actors that take a single keyword field
+    (Indeed, Glassdoor). Capped to `cap` titles — these actors return ZERO results
+    when the OR query gets too long (e.g. 44 titles -> ~1,100 chars). The full title
+    list is still used for LinkedIn / Career Sites, which take a titleSearch array."""
+    terms = _keyword_list(p)[:cap]
     return " OR ".join(terms) if terms else ""
 
 

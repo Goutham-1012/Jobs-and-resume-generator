@@ -7,6 +7,8 @@
 jobs.db
 *.db
 generated_resumes/
+profiles.json
+**/profiles.json
 __pycache__/
 *.pyc
 .venv/

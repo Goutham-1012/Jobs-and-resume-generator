@@ -23,7 +23,28 @@ HYPERLINK_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relations
 EXPECTED_COMPANIES = ["NextEra", "Fiserv", "Textron", "Lowe", "Siemens"]
 
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
-DEFAULT_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o")
+DEFAULT_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")  # never default to the pricey model
+
+
+def _resolve_model(model=None):
+    """Resolve the model at CALL time (env may not have loaded at import time)."""
+    return model or os.environ.get("OPENAI_MODEL") or "gpt-4o-mini"
+
+
+def _is_reasoning(model):
+    """gpt-5* and o-series are reasoning models that reject a custom temperature."""
+    m = (model or "").lower()
+    return m.startswith("gpt-5") or m.startswith("o1") or m.startswith("o3") or m.startswith("o4")
+
+
+def _chat_payload(model, messages, temperature):
+    """Build a chat payload, omitting temperature for reasoning models (they only
+    accept the default), so gpt-5-mini / gpt-5.4 / o-series don't 400."""
+    payload = {"model": model, "messages": messages,
+               "response_format": {"type": "json_object"}}
+    if not _is_reasoning(model):
+        payload["temperature"] = temperature
+    return payload
 
 FONT = "Century Gothic"
 BASE_RESUME_PATH = os.path.join(os.path.dirname(__file__), "base_resume.txt")
@@ -50,6 +71,7 @@ PRECEDENCE RULE (read carefully)
 STRUCTURE REQUIREMENTS (from the user's resume — these override skill layout limits)
 - "summary": 3 to 4 dense paragraph-style lines (NOT bullets), each one or two sentences, keyword rich.
 - "skills": keep the categorized style of the original (one entry per category, "Category Name: item, item, item"), BUT FOCUS THE SECTION ON THE JOB DESCRIPTION. REMOVE categories and individual skills that are not relevant to the target role (for example, drop LLM / RAG / GenAI / knowledge-graph / finance categories when the JD is a computer-vision or robotics role). Keep only JD-relevant categories, reorder them so the most JD-critical appear first, and ADD new JD-specific categories and named tools/methods. Aim for roughly 8 to 12 tightly relevant categories. A focused, pruned skills section ranks better than a long unfocused one. EVERY skills entry MUST be a "Category Name: item, item, item" line that groups related skills; NEVER list a single keyword on its own line. Required JD keywords must be folded into the most appropriate category (for example "Robotics & Automation: Robotics, vision-based automation, robotic workcells").
+  CATEGORY NAMES MUST BE CONVENTIONAL/STANDARD résumé groupings (e.g. "Programming & Query Languages", "Data Engineering & Pipelines", "Databases & Data Modeling", "Messaging & Streaming", "Cloud & Infrastructure", "MLOps & Deployment", "BI & Visualization"). Do NOT turn a JD requirement phrase into its own skill category — that reads as keyword stuffing. AVOID artificial categories like "Backpressure Management: event-driven messaging, idempotency, dead-letter handling" or "NoSQL Data Modeling: partition strategy, consistency tradeoffs, query cost optimization"; instead fold those terms into normal categories (e.g. "Messaging & Streaming: Kafka, idempotency, dead-letter queues, backpressure" and "Databases & Data Modeling: DynamoDB, partitioning, consistency tradeoffs"). Keep items as real tools/skills, not requirement sentences.
 - "experience": keep every company, location, and date EXACTLY as in the original. EVERY role MUST have between 6 and 8 bullets (match the original resume's bullet counts; never fewer than 6 per role). When pruning or reframing, replace off-target bullets with JD-relevant ones rather than deleting them, so the count stays 6 to 8. APPLY THE SKILL'S ROLE POSITIONING to titles based on what the JD emphasizes: SQL / reporting / dashboards / KPIs => Data Analyst; ETL / Spark / Airflow pipelines => Data Engineer; data modeling / warehouse / transformations => Analytics Engineer; otherwise keep an AI/ML title. Reposition titles when the JD justifies it; never change the company, location, or dates.
 - "projects": keep the Project Highlights section with project names and rewritten bullets.
 - "education" and "certifications": keep exactly as provided.
@@ -58,6 +80,12 @@ HARD REQUIREMENTS (non-negotiable — verify before returning)
 1. EVERY bullet in EVERY experience role AND every project MUST contain at least one quantified metric (a number, percent, time saved, throughput, dataset size, accuracy, latency, or cost). No bullet may be metric-free.
 1b. EVERY experience bullet must be detailed and substantial: roughly 22 to 38 words (about two full lines), combining the technical action, the specific tools/technologies used, AND the quantified business or operational outcome. Do NOT write short single-line bullets. Project bullets should be at least 18 words.
 2. CRITICAL: It is NOT enough to add the job description's skills to the summary and the skills section. You MUST rewrite the PROFESSIONAL EXPERIENCE bullets so the candidate visibly DID work with the JD's core skills and technologies. Each mandatory JD skill must be demonstrated through a concrete accomplishment in an experience bullet (with tools + metric), not merely listed. If the JD targets a different specialty than the original resume (for example computer vision, robotics, or signal processing instead of LLMs), reframe the existing accomplishments so they credibly demonstrate the new specialty using the same companies, domains, and dates.
+2a. ANCHOR BULLETS (highest priority): The two most recent roles must EACH lead with 2 to 3 strong "anchor" bullets that directly prove the JD's core responsibilities and DOMAIN — not just its tool names. Weave in the JD's domain workflows and process concepts as concrete work, e.g. for medical imaging: CT/MRI image processing, segmentation, image registration, 3D anatomy, image-guided navigation; for regulated/medical-device work: requirements, verification and validation (V&V), FDA / ISO 13485 / IEC 62304, risk controls; for safety-critical ML: failure mode and hazard analysis, edge-case identification, mitigation strategies; and full-lifecycle delivery: prototype algorithms -> production inference services with CI/CD, automated testing, and model monitoring. Each anchor bullet still needs specific tools + a quantified outcome. IMPORTANT: anchor bullets must obey rule 2c — where a domain workflow is a stretch for the candidate's real background, express it with transferable/adjacent, defensible wording (e.g. "[domain]-style data", "framework applicable to [domain]") rather than inventing precise first-hand domain claims or volumes.
+2b. Any high-value JD keyword (especially the named programming languages like C++ and object-oriented design, plus domain/process terms) must appear in at least one EXPERIENCE bullet as real work, NOT only in the summary or skills — but only where it is credible for that company's domain. Prefer reframing an existing accomplishment over inventing an unrelated one.
+2c. DEFENSIBILITY (ATS-optimized but believable — this is the target style): Maximize ATS keyword coverage WITHOUT fabricating hyper-specific claims the candidate could not defend in an interview. When the JD's domain differs from the candidate's real background, use realistic, transferable, HEDGED framing instead of asserting deep first-hand domain experience.
+   PREFER wording like: "built a benefits-analytics dashboard framework", "worked with claims-like and healthcare-adjacent datasets", "applied [skill] to [domain]-style data", "designed pipelines applicable to [domain] reporting", "transferable to [domain] workflows".
+   AVOID inventing precise foreign-domain volumes or artifacts that imply direct experience, e.g. "processed 50M claim rows", "5M employee benefit records", "12 provider feeds", "tested the Tuva Project connector at <employer>", or claiming regulated/clinical first-hand work the candidate never did.
+   Keep the JD's exact keywords present for ATS, but for domain-specific terms the candidate has NOT directly used (niche tools, regulated programs, specific connectors), it is fine to surface them mainly in the SKILLS section and reference them in experience with adjacent/transferable wording. Every experience bullet must be something the candidate can comfortably explain and defend. Metrics must be plausible and tied to systems/efficiency/scale of work actually done, not to fabricated domain-specific record counts.
 3. The most recent role must demonstrate 100 percent of the JD's mandatory skills in its bullets; earlier roles must demonstrate roughly 80 to 90 percent of relevant skills. Distribute the skills organically across the experience narrative.
 4. EVERY tool, technology, framework, language, or platform named in the job description MUST appear verbatim in the "skills" section AND be demonstrated in at least one experience bullet.
 4a. When the JD lists ALTERNATIVES, include ALL named options verbatim, not just one. Examples: "Python or Java" -> list BOTH Python and Java; "AWS, Azure, or GCP" -> list all three. Do not silently drop an option just because the candidate favored another.
@@ -68,7 +96,9 @@ HARD REQUIREMENTS (non-negotiable — verify before returning)
 8. PRUNE IRRELEVANCE: Remove or reframe any experience bullet, skill, or project that is not relevant to the target JD. Do not leave off-target content (e.g. credit scoring, financial fraud, knowledge graphs, diffusion image generation) in a resume aimed at a different specialty. Refocus everything on the JD.
 9. DOMAIN CONSISTENCY: Keep each company's real industry domain. Never attribute finance/insurance/claims work to an aviation, energy, or retail employer. Reframe accomplishments within that company's actual industry.
 10. NAME SPECIFIC TOOLS/METHODS that fit the JD's specialty when realistic, e.g. computer vision: YOLO, Faster R-CNN, Mask R-CNN, OpenCV, semantic segmentation; signal processing: FFT, wavelets, Kalman filters, sensor fusion, noise filtering; edge: ONNX Runtime, TensorRT, quantization. Spread these across skills and experience.
-11. Write proof-based bullets. Vary sentence structure and do NOT echo the job description's phrasing verbatim; demonstrate the skill through a concrete accomplishment instead.
+11. Write proof-based bullets in the candidate's own voice. Demonstrate the skill through a concrete accomplishment, not by restating the requirement.
+11a. NO VERBATIM PLAGIARISM: Never copy the JD's distinctive multi-word phrases word-for-word or near-verbatim. A recruiter compares the resume to the JD — lifted phrases read as echoing requirements and destroy credibility. Example to AVOID: JD says "manage backpressure across async workloads and maintain clean service boundaries" and the bullet says "Managed backpressure ... ensuring clean service boundaries". Instead paraphrase into specifics, e.g. "Throttled a Kafka consumer with bounded queues and dead-letter retries so downstream services stayed decoupled during 5x traffic spikes." Reuse the JD's single keywords/tool names (for ATS), but not its phrases or sentence structure.
+11b. SHOW THE "HOW", not just the "what": every experience bullet must include the approach, mechanism, architecture, or decision that achieved the result — the technique used, not merely the outcome that mirrors the JD. "What + how + quantified result," each phrased differently from the JD.
 
 OUTPUT
 Return ONLY a JSON object (no markdown) with this exact shape:
@@ -106,13 +136,17 @@ def load_base_resume():
     return ""
 
 
-def generate_resume(resume_text, job_description, model=None):
-    """Call OpenAI (JSON mode) and return the structured resume dict."""
+def generate_resume(resume_text, job_description, model=None, expected_companies=None):
+    """Call OpenAI (JSON mode) and return the structured resume dict.
+
+    `expected_companies` (per-profile) drives the keep-all-roles audit; when None it
+    falls back to the default profile's EXPECTED_COMPANIES (backward compatible)."""
     resume_text = (resume_text or "").strip() or load_base_resume()
     if not resume_text:
         raise ValueError("Original resume is required.")
     if not (job_description or "").strip():
         raise ValueError("Target job description is required.")
+    model = _resolve_model(model)  # resolve here so .env is honored regardless of import order
 
     user_msg = (
         "ORIGINAL RESUME (preserve this exact structure and formatting):\n"
@@ -122,15 +156,10 @@ def generate_resume(resume_text, job_description, model=None):
         "Rewrite the resume to align with the job description and return the JSON object."
     )
 
-    payload = {
-        "model": model or DEFAULT_MODEL,
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_msg},
-        ],
-        "temperature": 0.4,
-        "response_format": {"type": "json_object"},
-    }
+    payload = _chat_payload(model, [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": user_msg},
+    ], 0.4)
 
     resp = requests.post(
         OPENAI_URL,
@@ -144,29 +173,32 @@ def generate_resume(resume_text, job_description, model=None):
     content = resp.json()["choices"][0]["message"]["content"]
     data = json.loads(content)
 
-    # Automatic audit + repair loop. Keep iterating until the draft passes the hard
-    # rules AND reaches the ATS floor, or until the pass budget is exhausted. Always
-    # return the best draft seen, ranked by (fewest problems, highest ATS score).
-    def _key(d):
-        return (len(_audit(d, job_description)), -ats_score(d, job_description))
-
+    # Automatic audit + repair loop. Keep iterating until the draft is clean AND at/above
+    # the ATS floor; always keep the best draft seen, ranked by (fewest problems, highest
+    # ATS). Once the floor is cleared, only chase remaining minor nits for a few more
+    # passes so we don't burn the whole budget on issues that won't resolve.
     best = data
-    best_key = _key(data)
+    best_key = (float("inf"),)
+    polished = 0
     for _ in range(12):
-        problems = _audit(data, job_description)
-        if not problems and ats_score(data, job_description) >= ATS_FLOOR:
-            best = data
+        problems = _audit(data, job_description, expected_companies)
+        score = ats_score(data, job_description)
+        key = (len(problems), -score)
+        if key < best_key:
+            best, best_key = data, key
+        if not problems and score >= ATS_FLOOR:
             break
+        if score >= ATS_FLOOR:
+            polished += 1
+            if polished >= 3:
+                break
         data = _repair(data, job_description, problems, model or DEFAULT_MODEL)
-        k = _key(data)
-        if k < best_key:
-            best, best_key = data, k
 
     best["ats_score"] = ats_score(best, job_description)
     return best
 
 
-ATS_FLOOR = 85  # generation keeps repairing until the ATS score reaches this
+ATS_FLOOR = 90  # generation keeps repairing until the ATS score reaches this
 
 # Concrete named technologies that, if present in the JD, must surface in the resume.
 _RECENT_TECH = {"python", "sql", "airflow", "prefect", "llm", "llms", "agentic",
@@ -310,14 +342,18 @@ def ats_score(d, jd):
     return max(0, min(100, round(100 * (0.75 * coverage + 0.25 * demo_cov))))
 
 
-def _audit(d, jd):
-    """Return concrete, fixable problems (with the exact offending content)."""
+def _audit(d, jd, expected_companies=None):
+    """Return concrete, fixable problems (with the exact offending content).
+
+    `expected_companies` is the per-profile employer list; defaults to the built-in
+    EXPECTED_COMPANIES. An empty list skips the keep-all-roles check entirely."""
     import re
     issues = []
 
     # No original role may be dropped during rewriting.
+    companies = EXPECTED_COMPANIES if expected_companies is None else expected_companies
     exp_blob = json.dumps(d.get("experience", [])).lower()
-    missing_roles = [c for c in EXPECTED_COMPANIES if c.lower() not in exp_blob]
+    missing_roles = [c for c in companies if c.lower() not in exp_blob]
     if missing_roles:
         issues.append("These required roles are MISSING and must be restored with their real "
                       "company, location, dates, and 6-8 bullets (never drop a role): "
@@ -441,15 +477,10 @@ def _repair(d, jd, problems, model):
         "\n\nJOB DESCRIPTION:\n" + jd.strip() +
         "\n\nDRAFT JSON:\n" + json.dumps(d)
     )
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": msg},
-        ],
-        "temperature": 0.3,
-        "response_format": {"type": "json_object"},
-    }
+    payload = _chat_payload(model, [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": msg},
+    ], 0.3)
     resp = requests.post(
         OPENAI_URL,
         headers={"Authorization": f"Bearer {get_key()}",
@@ -573,8 +604,18 @@ def _clean(obj):
     return obj
 
 
-def render_docx(d, out_path):
+def render_docx(d, out_path, contact=None):
     d = _clean(d)
+    # Per-profile contact overrides; fall back to the default constants. The contact
+    # may also ride along inside the data dict (set by generate flow) as "_contact".
+    contact = contact or d.get("_contact") or {}
+    c_email = contact.get("email", EMAIL)
+    c_phone = contact.get("phone", PHONE)
+    c_links = {
+        "LinkedIn": contact.get("linkedin", LINKS["LinkedIn"]),
+        "GitHub": contact.get("github", LINKS["GitHub"]),
+        "Portfolio": contact.get("portfolio", LINKS["Portfolio"]),
+    }
     doc = Document()
     for s in doc.sections:
         s.top_margin = s.bottom_margin = Inches(1)
@@ -587,14 +628,14 @@ def render_docx(d, out_path):
     name_p = doc.add_paragraph()
     name_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     name_p.paragraph_format.space_after = Pt(0)
-    _set_font(name_p.add_run(d.get("name", "")), 14, bold=True)
+    _set_font(name_p.add_run(contact.get("name") or d.get("name", "")), 14, bold=True)
 
     # Contact line with real hyperlinks: email | phone | LinkedIn | GitHub | Portfolio
     cp = doc.add_paragraph()
     cp.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    _set_font(cp.add_run(EMAIL), 10)
-    _set_font(cp.add_run(f"  |  {PHONE}  |  "), 10)
-    for i, (label, url) in enumerate(LINKS.items()):
+    _set_font(cp.add_run(c_email), 10)
+    _set_font(cp.add_run(f"  |  {c_phone}  |  "), 10)
+    for i, (label, url) in enumerate(c_links.items()):
         if i:
             _set_font(cp.add_run("  |  "), 10)
         _add_hyperlink(cp, url, label, 10)

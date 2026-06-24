@@ -48,14 +48,37 @@ def init_db():
 
         CREATE INDEX IF NOT EXISTS idx_jobs_run ON jobs(run_id);
         CREATE INDEX IF NOT EXISTS idx_jobs_source ON jobs(source);
+
+        CREATE TABLE IF NOT EXISTS resume_queue (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT NOT NULL,
+            position INTEGER,
+            profile_id TEXT,
+            profile_name TEXT,
+            label TEXT,
+            company TEXT,
+            title TEXT,
+            job_description TEXT,
+            status TEXT DEFAULT 'queued',
+            ats INTEGER,
+            saved_path TEXT,
+            preview TEXT,
+            data_json TEXT,
+            error TEXT,
+            model TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_rq_status ON resume_queue(status, position);
         """
     )
-    # Migration: add `seen` to pre-existing databases (CREATE TABLE IF NOT EXISTS
-    # won't add new columns to an existing table).
-    try:
-        conn.execute("ALTER TABLE jobs ADD COLUMN seen INTEGER DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass  # column already exists
+    # Migrations for pre-existing databases (CREATE TABLE IF NOT EXISTS won't add columns).
+    for stmt in (
+        "ALTER TABLE jobs ADD COLUMN seen INTEGER DEFAULT 0",
+        "ALTER TABLE resume_queue ADD COLUMN model TEXT",
+    ):
+        try:
+            conn.execute(stmt)
+        except sqlite3.OperationalError:
+            pass  # column already exists
     conn.commit()
     conn.close()
 
@@ -179,3 +202,141 @@ def get_stats(run_id=None):
     rows = conn.execute(sql, params).fetchall()
     conn.close()
     return {r["source"]: r["c"] for r in rows}
+
+
+# ---------------------------------------------------------------------------
+# Resume generation queue (server-side, shared by dashboard + resume page)
+# ---------------------------------------------------------------------------
+def enqueue_resume(item):
+    """Insert a queued item at the end. `item` keys: profile_id, profile_name,
+    label, company, title, job_description. Returns the new row id."""
+    conn = get_conn()
+    pos = (conn.execute("SELECT COALESCE(MAX(position), 0) FROM resume_queue").fetchone()[0]) + 1
+    cur = conn.execute(
+        "INSERT INTO resume_queue (created_at, position, profile_id, profile_name, "
+        "label, company, title, job_description, model, status) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued')",
+        (now_iso(), pos, item.get("profile_id"), item.get("profile_name"),
+         item.get("label"), item.get("company"), item.get("title"),
+         item.get("job_description"), item.get("model")),
+    )
+    conn.commit()
+    rid = cur.lastrowid
+    conn.close()
+    return rid
+
+
+def list_resume_queue():
+    """All queue items ordered by position (excludes the heavy data_json)."""
+    conn = get_conn()
+    rows = [dict(r) for r in conn.execute(
+        "SELECT id, created_at, position, profile_id, profile_name, label, company, "
+        "title, status, ats, saved_path, preview, error, model "
+        "FROM resume_queue ORDER BY position ASC, id ASC").fetchall()]
+    conn.close()
+    return rows
+
+
+def claim_next_queued():
+    """Atomically mark the lowest-position queued item as generating and return it."""
+    conn = get_conn()
+    row = conn.execute(
+        "UPDATE resume_queue SET status='generating' "
+        "WHERE id = (SELECT id FROM resume_queue WHERE status='queued' "
+        "            ORDER BY position ASC, id ASC LIMIT 1) "
+        "RETURNING *"
+    ).fetchone()
+    conn.commit()
+    result = dict(row) if row else None
+    conn.close()
+    return result
+
+
+def update_queue_item(item_id, **fields):
+    if not fields:
+        return
+    cols = ", ".join(f"{k} = ?" for k in fields)
+    conn = get_conn()
+    conn.execute(f"UPDATE resume_queue SET {cols} WHERE id = ?",
+                 (*fields.values(), item_id))
+    conn.commit()
+    conn.close()
+
+
+def get_queue_item(item_id):
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM resume_queue WHERE id = ?", (item_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def delete_queue_item(item_id):
+    """Delete any item that isn't currently generating. Returns True if removed."""
+    conn = get_conn()
+    cur = conn.execute(
+        "DELETE FROM resume_queue WHERE id = ? AND status != 'generating'", (item_id,))
+    conn.commit()
+    removed = cur.rowcount > 0
+    conn.close()
+    return removed
+
+
+def retry_queue_item(item_id):
+    """Re-queue a failed (or done) item: clear its result and put it at the back of the
+    queue so the worker regenerates it. Won't touch an item that's currently generating."""
+    conn = get_conn()
+    pos = conn.execute("SELECT COALESCE(MAX(position), 0) FROM resume_queue").fetchone()[0] + 1
+    cur = conn.execute(
+        "UPDATE resume_queue SET status='queued', error=NULL, ats=NULL, saved_path=NULL, "
+        "preview=NULL, data_json=NULL, position=? WHERE id=? AND status!='generating'",
+        (pos, item_id),
+    )
+    conn.commit()
+    ok = cur.rowcount > 0
+    conn.close()
+    return ok
+
+
+def requeue_stuck():
+    """On startup, return any items left 'generating' (from a crash/restart) to the
+    queue so the worker re-processes them. Returns how many were recovered."""
+    conn = get_conn()
+    cur = conn.execute("UPDATE resume_queue SET status='queued' WHERE status='generating'")
+    conn.commit()
+    n = cur.rowcount
+    conn.close()
+    return n
+
+
+def clear_queue():
+    """Remove everything that isn't currently generating."""
+    conn = get_conn()
+    conn.execute("DELETE FROM resume_queue WHERE status != 'generating'")
+    conn.commit()
+    conn.close()
+
+
+def reorder_queue(ordered_ids):
+    """Rearrange only the queued items, within the slots they already occupy, leaving
+    done/generating items in place; then renumber every row's position to a clean 1..N
+    so the list never collapses (and any pre-existing position corruption self-heals)."""
+    conn = get_conn()
+    rows = [dict(r) for r in conn.execute(
+        "SELECT id, status FROM resume_queue ORDER BY position, id").fetchall()]
+    full = [r["id"] for r in rows]                       # current display order (all items)
+    queued_ids = [r["id"] for r in rows if r["status"] == "queued"]
+    queued_slots = [i for i, r in enumerate(rows) if r["status"] == "queued"]
+
+    valid = set(queued_ids)
+    new_order = [i for i in ordered_ids if i in valid]   # requested order, queued only
+    for q in queued_ids:                                 # append any missing (race-safety)
+        if q not in new_order:
+            new_order.append(q)
+
+    for slot, qid in zip(queued_slots, new_order):       # queued items back into their slots
+        full[slot] = qid
+
+    for pos, iid in enumerate(full, start=1):            # clean, collision-free positions
+        conn.execute("UPDATE resume_queue SET position = ? WHERE id = ?", (pos, iid))
+    conn.commit()
+    conn.close()

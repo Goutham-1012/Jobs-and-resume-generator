@@ -14,6 +14,7 @@ async function scrape() {
     limit: parseInt($("limit").value, 10) || 25,
     maxAge: $("maxAge").value,
     sources,
+    profileId: $("scrapeProfile").value,
   };
 
   btn.disabled = true;
@@ -26,7 +27,9 @@ async function scrape() {
     });
     const data = await r.json();
     if (!r.ok) { setStatus("Error: " + (data.error || r.status)); return; }
-    setStatus(`Done. ${data.inserted} new jobs saved.\n` + (data.log || []).join("\n"));
+    const queuedMsg = data.queued ? ` · queued ${data.queued} resume(s) for generation` : "";
+    setStatus(`Done. ${data.inserted} new jobs saved${queuedMsg}.\n` + (data.log || []).join("\n"));
+    if (data.queued) $("viewQueueLink").style.display = "inline";
     await loadRuns();
     await loadJobs();
   } catch (e) {
@@ -135,6 +138,15 @@ $("jobsBody").addEventListener("click", (e) => {
   const a = e.target.closest("a[data-job-id]");
   if (a) markSeen(a.dataset.jobId);  // link still opens in a new tab
 });
+async function loadScrapeProfiles() {
+  try {
+    const r = await fetch("/api/profiles");
+    const { profiles } = await r.json();
+    $("scrapeProfile").innerHTML = (profiles || [])
+      .map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join("");
+  } catch (_) { /* ignore */ }
+}
+
 $("scrapeBtn").addEventListener("click", scrape);
 $("search").addEventListener("input", () => { clearTimeout(window._t); window._t = setTimeout(loadJobs, 250); });
 $("sourceFilter").addEventListener("change", loadJobs);
@@ -142,3 +154,4 @@ $("runFilter").addEventListener("change", (e) => { state.run_id = e.target.value
 
 loadRuns();
 loadJobs();
+loadScrapeProfiles();

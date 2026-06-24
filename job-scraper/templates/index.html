@@ -43,7 +43,14 @@
       {% endfor %}
     </fieldset>
 
-    <button id="scrapeBtn">Scrape Jobs</button>
+    <label class="scrape-profile">Auto-generate tailored resumes for profile
+      <select id="scrapeProfile"></select>
+    </label>
+
+    <div class="scrape-actions">
+      <button id="scrapeBtn">Scrape Jobs</button>
+      <a id="viewQueueLink" href="/resume" class="nav-link" style="display:none">View resume queue →</a>
+    </div>
     <div id="status" class="status"></div>
   </section>
 

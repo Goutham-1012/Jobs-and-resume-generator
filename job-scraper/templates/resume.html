@@ -14,30 +14,81 @@
   </header>
 
   <section class="panel">
-    <div class="resume-grid">
-      <label>Your current resume (paste plain text)
-        <textarea id="resume" rows="16" placeholder="Paste your full resume here…"></textarea>
+    <div class="profile-bar">
+      <label style="flex:1">Profile
+        <select id="profileSelect"></select>
       </label>
-      <div>
-        <label>Target job description
-          <div class="jd-tools">
-            <select id="jobPicker"><option value="">— or load from a scraped job —</option></select>
-          </div>
-          <textarea id="jobDescription" rows="9" placeholder="Paste the job description here, or pick a scraped job above…"></textarea>
-        </label>
-        <div class="meta-row">
-          <label>Company <span class="opt">(optional)</span>
-            <input id="company" type="text" placeholder="e.g. Amazon">
-          </label>
-          <label>Title <span class="opt">(optional)</span>
-            <input id="title" type="text" placeholder="e.g. ML SDE-2">
-          </label>
-        </div>
-      </div>
+      <button class="mini" id="newProfileBtn">+ New</button>
+      <button class="mini" id="editProfileBtn">Edit</button>
+      <button class="mini" id="delProfileBtn">Delete</button>
     </div>
+
+    <label>Target job description
+      <div class="jd-tools">
+        <select id="jobPicker"><option value="">— or load from a scraped job —</option></select>
+      </div>
+      <textarea id="jobDescription" rows="8" placeholder="Paste the job description here, or pick a scraped job above…"></textarea>
+    </label>
+    <div class="meta-row">
+      <label>Company <span class="opt">(optional)</span>
+        <input id="company" type="text" placeholder="e.g. Amazon">
+      </label>
+      <label>Title <span class="opt">(optional)</span>
+        <input id="title" type="text" placeholder="e.g. ML SDE-2">
+      </label>
+    </div>
+    <label class="model-row">Model
+      <select id="modelSelect">
+        <option value="gpt-5-mini" selected>gpt-5-mini — recommended (~$0.03/resume)</option>
+        <option value="gpt-4o-mini">gpt-4o-mini — cheapest (~$0.01/resume)</option>
+      </select>
+    </label>
     <div class="resume-actions">
       <button id="genBtn">Generate</button>
       <span id="status" class="status"></span>
+    </div>
+  </section>
+
+  <!-- Profile editor (hidden until New/Edit) -->
+  <section class="panel" id="profileEditor" style="display:none">
+    <div class="toolbar"><strong id="editorTitle">New profile</strong></div>
+    <div class="meta-row">
+      <label>Full name <input id="pf_name" type="text"></label>
+      <label>Email <input id="pf_email" type="text"></label>
+    </div>
+    <div class="meta-row">
+      <label>Phone <input id="pf_phone" type="text"></label>
+      <label>LinkedIn URL <input id="pf_linkedin" type="text"></label>
+    </div>
+    <div class="meta-row">
+      <label>GitHub URL <input id="pf_github" type="text"></label>
+      <label>Portfolio URL <input id="pf_portfolio" type="text"></label>
+    </div>
+    <label>Employers (comma-separated — every role must be listed)
+      <input id="pf_employers" type="text" placeholder="e.g. Acme Corp, Globex, Initech">
+    </label>
+    <label>Professional Summary
+      <textarea id="pf_summary" rows="4"></textarea>
+    </label>
+    <label>Technical Skills (one "Category: items" per line)
+      <textarea id="pf_skills" rows="5"></textarea>
+    </label>
+    <label>Professional Experience (roles, dates, bullets)
+      <textarea id="pf_experience" rows="10"></textarea>
+    </label>
+    <label>Education
+      <textarea id="pf_education" rows="3"></textarea>
+    </label>
+    <label>Projects <span class="opt">(optional)</span>
+      <textarea id="pf_projects" rows="4"></textarea>
+    </label>
+    <label>Certifications <span class="opt">(optional)</span>
+      <textarea id="pf_certifications" rows="2"></textarea>
+    </label>
+    <div class="resume-actions">
+      <button id="saveProfileBtn">Save profile</button>
+      <button id="cancelProfileBtn" class="secondary">Cancel</button>
+      <span id="editorStatus" class="status"></span>
     </div>
   </section>
 
