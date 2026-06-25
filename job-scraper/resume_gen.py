@@ -73,6 +73,7 @@ STRUCTURE REQUIREMENTS (from the user's resume — these override skill layout l
 - "skills": keep the categorized style of the original (one entry per category, "Category Name: item, item, item"), BUT FOCUS THE SECTION ON THE JOB DESCRIPTION. REMOVE categories and individual skills that are not relevant to the target role (for example, drop LLM / RAG / GenAI / knowledge-graph / finance categories when the JD is a computer-vision or robotics role). Keep only JD-relevant categories, reorder them so the most JD-critical appear first, and ADD new JD-specific categories and named tools/methods. Aim for roughly 8 to 12 tightly relevant categories. A focused, pruned skills section ranks better than a long unfocused one. EVERY skills entry MUST be a "Category Name: item, item, item" line that groups related skills; NEVER list a single keyword on its own line. Required JD keywords must be folded into the most appropriate category (for example "Robotics & Automation: Robotics, vision-based automation, robotic workcells").
   CATEGORY NAMES MUST BE CONVENTIONAL/STANDARD résumé groupings (e.g. "Programming & Query Languages", "Data Engineering & Pipelines", "Databases & Data Modeling", "Messaging & Streaming", "Cloud & Infrastructure", "MLOps & Deployment", "BI & Visualization"). Do NOT turn a JD requirement phrase into its own skill category — that reads as keyword stuffing. AVOID artificial categories like "Backpressure Management: event-driven messaging, idempotency, dead-letter handling" or "NoSQL Data Modeling: partition strategy, consistency tradeoffs, query cost optimization"; instead fold those terms into normal categories (e.g. "Messaging & Streaming: Kafka, idempotency, dead-letter queues, backpressure" and "Databases & Data Modeling: DynamoDB, partitioning, consistency tradeoffs"). Keep items as real tools/skills, not requirement sentences.
 - "experience": keep every company, location, and date EXACTLY as in the original. EVERY role MUST have between 6 and 8 bullets (match the original resume's bullet counts; never fewer than 6 per role). When pruning or reframing, replace off-target bullets with JD-relevant ones rather than deleting them, so the count stays 6 to 8. APPLY THE SKILL'S ROLE POSITIONING to titles based on what the JD emphasizes: SQL / reporting / dashboards / KPIs => Data Analyst; ETL / Spark / Airflow pipelines => Data Engineer; data modeling / warehouse / transformations => Analytics Engineer; otherwise keep an AI/ML title. Reposition titles when the JD justifies it; never change the company, location, or dates.
+  SENIORITY GUARD (critical): titles may match the JD's role FAMILY/specialty but must NEVER be under-leveled relative to the candidate's experience. The candidate has 6+ years, so the most recent role must stay mid/senior (e.g. "Senior AI Engineer", "Generative AI Engineer", "AI Software Engineer", "Lead/Staff …"). NEVER prepend "Junior", "Associate", "Intern", "Entry-level", "Trainee", or "Graduate" to any title, even if the job posting's own title says so. Keep each role's seniority at least as high as in the original résumé. The PROFESSIONAL SUMMARY opener must also describe the candidate at a level consistent with 6+ years — never "Junior" or "Associate".
 - "projects": keep the Project Highlights section with project names and rewritten bullets.
 - "education" and "certifications": keep exactly as provided.
 
@@ -317,6 +318,28 @@ def _irrelevant_skill_lines(d, jd, mand, pref):
     return bad
 
 
+def _stuffed_skill_lines(d):
+    """Flag keyword-stuffed skill entries where the items just repeat the category
+    (e.g. 'Compliance: compliance', 'GenAI: genai', 'LLMs: llm, llms'), which read as
+    fake categories rather than real skill groupings."""
+    import re
+    norm = lambda s: re.sub(r"[^a-z0-9]", "", s.lower())
+    bad = []
+    for line in d.get("skills", []):
+        if ":" not in line:
+            continue
+        cat, items = line.split(":", 1)
+        item_list = [i.strip() for i in items.split(",") if i.strip()]
+        cat_n = norm(cat)
+        items_n = {norm(i) for i in item_list}
+        # stuffed if the items add nothing beyond the category name itself
+        if not item_list:
+            bad.append(line)
+        elif items_n <= {cat_n} or all(i == cat_n or i in cat_n or cat_n in i for i in items_n):
+            bad.append(line)
+    return bad
+
+
 def ats_score(d, jd):
     """Keyword-coverage ATS estimate (0-100): how many JD-named skills appear in the
     resume, weighted toward demonstrating core specialty skills in experience.
@@ -416,6 +439,28 @@ def _audit(d, jd, expected_companies=None):
                       "'Robotics' inside a 'Robotics & Automation: ...' line); never list a "
                       "keyword on its own line: " + ", ".join(bare))
 
+    # Under-leveled titles (candidate has 6+ years) and a "Junior/Associate" summary opener.
+    _BANNED_LEVEL = ("junior", "associate", "intern", "entry-level", "entry level",
+                     "trainee", "graduate")
+    bad_titles = [e.get("title", "") for e in d.get("experience", [])
+                  if any(b in (e.get("title") or "").lower() for b in _BANNED_LEVEL)]
+    summary0 = (d.get("summary") or [""])[0].lower()
+    if bad_titles or any(b in summary0 for b in _BANNED_LEVEL):
+        issues.append("Remove the under-leveled qualifier (Junior/Associate/Intern/Entry-level/"
+                      "Trainee/Graduate) from titles and the summary — the candidate has 6+ years. "
+                      "Use mid/senior titles (e.g. 'Senior AI Engineer', 'Generative AI Engineer', "
+                      "'AI Software Engineer'). Offending: " + ", ".join(bad_titles or ["summary opener"]))
+
+    # Keyword-stuffed lines where the category just repeats its own keyword.
+    stuffed = _stuffed_skill_lines(d)
+    if stuffed:
+        issues.append("These skill entries are keyword-stuffing (the category just repeats its own "
+                      "keyword). DELETE each fake category and FOLD the keyword as an item into an "
+                      "appropriate REAL category (e.g. GenAI -> 'Generative AI & Agentic Workflows', "
+                      "React/TypeScript -> 'Programming & Scripting', compliance -> 'Security & "
+                      "Responsible AI') so the keyword stays present without a one-word category:\n   - "
+                      + "\n   - ".join(stuffed))
+
     # Prune skill categories that have no relevance to the JD at all.
     irrelevant = _irrelevant_skill_lines(d, jd, mand, pref)
     if irrelevant:
@@ -458,9 +503,11 @@ def _repair(d, jd, problems, model):
     msg = (
         "Here is a draft resume JSON. Make MINIMAL edits to fix ONLY the listed problems. "
         "Keep EVERYTHING ELSE byte-for-byte identical: same JSON shape, same companies, "
-        "locations, dates, titles, education, and certifications. "
-        "If a problem says to REMOVE a skill category, delete that exact category line from "
-        "the skills array. NEVER drop an experience role; every original company must remain "
+        "locations, dates, education, and certifications. Keep titles identical UNLESS a problem "
+        "says to fix an under-leveled title — then change only the seniority wording (e.g. "
+        "'Junior AI Engineer' -> 'Senior AI Engineer'/'Generative AI Engineer'), never the company/dates. "
+        "If a problem says to REMOVE/FOLD a skill category, delete that fake category line and merge its "
+        "keyword as an item into a real category. NEVER drop an experience role; every original company must remain "
         "with its real location and dates. If a problem says a role is missing, restore it with "
         "6-8 bullets. If a problem says a role has too few bullets, ADD credible JD-relevant "
         "bullets (with tools and a metric, 22-38 words) so that role has 6 to 8 bullets. "

@@ -4,11 +4,17 @@ Every actor receives the SAME shared `limit` (number of jobs to scrape per actor
 mapped to whatever input field that particular actor expects.
 """
 import os
+import threading
 from datetime import datetime, timedelta, timezone
 import requests
 
 APIFY_BASE = "https://api.apify.com/v2"
 TIMEOUT = 300  # seconds per actor (run-sync)
+
+# Token rotation across multiple Apify accounts (each free tier ~$5/month). When one
+# token is exhausted/invalid we fall back to the next and remember the working one.
+_token_lock = threading.Lock()
+_token_start = 0  # index of the token to try first
 
 
 def _first(d, *keys):
@@ -234,43 +240,89 @@ ACTORS = {
 }
 
 
+def get_tokens():
+    """All Apify tokens to rotate through. Supports (in priority order, merged):
+      APIFY_TOKENS=tok1,tok2,tok3   (comma-separated — easiest for many accounts)
+      APIFY_TOKEN=tok               (single — backward compatible)
+      APIFY_TOKEN_1, APIFY_TOKEN_2, ...  (numbered)
+    Placeholders and duplicates are dropped; order is preserved."""
+    raw = []
+    raw += (os.environ.get("APIFY_TOKENS") or "").split(",")
+    raw.append(os.environ.get("APIFY_TOKEN") or "")
+    i = 1
+    while os.environ.get(f"APIFY_TOKEN_{i}"):
+        raw.append(os.environ[f"APIFY_TOKEN_{i}"])
+        i += 1
+    seen, out = set(), []
+    for t in (x.strip() for x in raw):
+        if t and not t.startswith("apify_api_xxxx") and t not in seen:
+            seen.add(t)
+            out.append(t)
+    return out
+
+
 def get_token():
-    token = os.environ.get("APIFY_TOKEN")
-    if not token:
-        raise RuntimeError("APIFY_TOKEN not set. Copy .env.example to .env and add your token.")
-    return token
+    """First token (backward-compatible helper)."""
+    tokens = get_tokens()
+    if not tokens:
+        raise RuntimeError("No Apify token set. Add APIFY_TOKENS (comma-separated) or APIFY_TOKEN to .env.")
+    return tokens[0]
+
+
+def _token_exhausted(status, text):
+    """True when the failure means this token is invalid or out of credit/quota, so
+    we should try the next token (vs a real actor/input error that all tokens share)."""
+    if status in (401, 402, 403, 429):
+        return True
+    t = (text or "").lower()
+    return any(k in t for k in (
+        "usage limit", "monthly usage", "insufficient", "exceeded", "payment required",
+        "not enough", "credit", "quota", "user-or-token-not-found", "token is not valid"))
 
 
 def run_actor(source_key, limit, params):
-    """Run one actor synchronously and return (normalized_jobs, info_string)."""
+    """Run one actor synchronously and return (normalized_jobs, info_string).
+    Rotates across all configured Apify tokens, falling back to the next whenever a
+    token is exhausted/invalid, and remembering the working one for later calls."""
+    global _token_start
     cfg = ACTORS[source_key]
     actor_id = cfg["actor_id"]
     body = cfg["build_input"](limit, params)
-
     url = f"{APIFY_BASE}/acts/{actor_id}/run-sync-get-dataset-items"
-    try:
-        resp = requests.post(
-            url,
-            params={"token": get_token()},
-            json=body,
-            timeout=TIMEOUT,
-        )
-    except requests.exceptions.RequestException as e:
-        return [], f"{cfg['label']}: request error — {e}"
 
-    if resp.status_code >= 400:
-        return [], f"{cfg['label']}: HTTP {resp.status_code} — {resp.text[:200]}"
+    tokens = get_tokens()
+    if not tokens:
+        return [], f"{cfg['label']}: no Apify token set (APIFY_TOKENS / APIFY_TOKEN)."
 
-    try:
-        items = resp.json()
-    except ValueError:
-        return [], f"{cfg['label']}: invalid JSON response"
+    n = len(tokens)
+    start = _token_start % n
+    last_err = ""
+    for offset in range(n):
+        idx = (start + offset) % n
+        try:
+            resp = requests.post(url, params={"token": tokens[idx]}, json=body, timeout=TIMEOUT)
+        except requests.exceptions.RequestException as e:
+            last_err = f"request error — {e}"
+            continue
+        if resp.status_code >= 400:
+            last_err = f"HTTP {resp.status_code} — {resp.text[:160]}"
+            if _token_exhausted(resp.status_code, resp.text):
+                with _token_lock:          # this token is dead; skip it next time
+                    _token_start = idx + 1
+                continue
+            return [], f"{cfg['label']}: {last_err}"  # real actor/input error
+        try:
+            items = resp.json()
+        except ValueError:
+            return [], f"{cfg['label']}: invalid JSON response"
+        if not isinstance(items, list):
+            return [], f"{cfg['label']}: unexpected response shape"
+        if offset > 0:                     # advanced past an exhausted token; stick here
+            with _token_lock:
+                _token_start = idx
+        jobs = [cfg["normalize"](it)
+                for it in items[: int(limit) if int(limit) > 0 else None] if isinstance(it, dict)]
+        tag = f" (token #{idx + 1}/{n})" if n > 1 else ""
+        return jobs, f"{cfg['label']}: {len(jobs)} jobs{tag}"
 
-    if not isinstance(items, list):
-        return [], f"{cfg['label']}: unexpected response shape"
-
-    jobs = []
-    for it in items[: int(limit) if int(limit) > 0 else None]:
-        if isinstance(it, dict):
-            jobs.append(cfg["normalize"](it))
-    return jobs, f"{cfg['label']}: {len(jobs)} jobs"
+    return [], f"{cfg['label']}: all {n} Apify token(s) exhausted/failed — last: {last_err}"
