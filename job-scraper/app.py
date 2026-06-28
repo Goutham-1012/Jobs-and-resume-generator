@@ -14,6 +14,9 @@ load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 import db
 import apify_client
 import resume_gen
+import apollo_client
+import outreach as outreach_mod
+import email_send
 
 app = Flask(__name__)
 db.init_db()
@@ -276,6 +279,7 @@ def scrape():
                 "label": job.get("title") or "Untitled",
                 "company": job.get("company") or "",
                 "title": job.get("title") or "",
+                "job_id": job.get("id"),
                 "job_description": jd,
             })
             queued += 1
@@ -472,6 +476,131 @@ def resume_queue_download(item_id):
     return send_file(tmp.name, as_attachment=True,
                      download_name=f"{name}_tailored.docx",
                      mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+
+
+# ---------------------------------------------------------------------------
+# Outreach: Apollo contacts -> AI draft -> review -> Gmail send (résumé attached)
+# ---------------------------------------------------------------------------
+@app.route("/outreach")
+def outreach_page():
+    return render_template("outreach.html")
+
+
+def _render_resume_attachment(rq_item):
+    """Render a résumé-queue item's stored data_json to a temp .docx; return (path, filename)."""
+    import tempfile
+    data = json.loads(rq_item["data_json"])
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
+    tmp.close()
+    resume_gen.render_docx(data, tmp.name)
+    nm = (data.get("name") or "resume").replace(" ", "_")
+    co = _sanitize(rq_item.get("company") or "")
+    return tmp.name, f"{nm}_{co}_Resume.docx" if co else f"{nm}_Resume.docx"
+
+
+@app.route("/api/outreach/candidates")
+def outreach_candidates():
+    """Completed résumés (each = a job) that can have outreach drafted."""
+    done = [r for r in db.list_resume_queue() if r["status"] == "done"]
+    drafted = {o["resume_queue_id"] for o in db.list_outreach()}
+    for r in done:
+        r["has_outreach"] = r["id"] in drafted
+    return jsonify({"candidates": done})
+
+
+@app.route("/api/outreach/draft", methods=["POST"])
+def outreach_draft():
+    data = request.get_json(force=True) or {}
+    rq = db.get_queue_item(data.get("resume_queue_id"))
+    if not rq or rq.get("status") != "done":
+        return jsonify({"error": "Generate the résumé for this job first."}), 400
+    profile = get_profile(rq.get("profile_id")) or (load_profiles() or [None])[0]
+    if not profile:
+        return jsonify({"error": "No profile found."}), 400
+
+    try:
+        contacts, note = apollo_client.find_contacts(rq.get("company"), limit=3)
+    except RuntimeError as e:
+        return jsonify({"error": str(e)}), 400
+    if not contacts:
+        return jsonify({"drafts": [], "note": note})
+
+    job = {"company": rq.get("company"), "job_title": rq.get("title"),
+           "job_description": rq.get("job_description")}
+    created = []
+    for c in contacts:
+        if db.outreach_exists(rq["id"], c["email"]):
+            continue
+        try:
+            email = outreach_mod.draft_email(profile, job, c)
+        except (RuntimeError, ValueError) as e:
+            return jsonify({"error": str(e)}), 400
+        oid = db.add_outreach({
+            "resume_queue_id": rq["id"], "company": rq.get("company"),
+            "job_title": rq.get("title"), "contact_name": c["name"],
+            "contact_title": c["title"], "contact_email": c["email"],
+            "subject": email["subject"], "body": email["body"],
+        })
+        created.append(oid)
+    return jsonify({"drafted": len(created), "note": note})
+
+
+@app.route("/api/outreach")
+def outreach_list():
+    return jsonify({"outreach": db.list_outreach()})
+
+
+@app.route("/api/outreach/<int:item_id>", methods=["PUT"])
+def outreach_update(item_id):
+    data = request.get_json(force=True) or {}
+    fields = {k: data[k] for k in ("subject", "body") if k in data}
+    if fields:
+        db.update_outreach(item_id, **fields)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/outreach/<int:item_id>", methods=["DELETE"])
+def outreach_delete(item_id):
+    db.delete_outreach(item_id)
+    return jsonify({"ok": True})
+
+
+def _send_one_outreach(item):
+    rq = db.get_queue_item(item.get("resume_queue_id"))
+    if not rq or not rq.get("data_json"):
+        db.update_outreach(item["id"], status="failed", error="résumé not available")
+        return False, "résumé not available"
+    path = None
+    try:
+        path, fname = _render_resume_attachment(rq)
+        email_send.send_gmail(item["contact_email"], item["subject"], item["body"], path, fname)
+        db.update_outreach(item["id"], status="sent", sent_at=db.now_iso(), error=None)
+        return True, "sent"
+    except Exception as e:  # noqa: BLE001
+        db.update_outreach(item["id"], status="failed", error=str(e)[:300])
+        return False, str(e)[:200]
+    finally:
+        if path and os.path.exists(path):
+            os.remove(path)
+
+
+@app.route("/api/outreach/<int:item_id>/send", methods=["POST"])
+def outreach_send(item_id):
+    item = db.get_outreach(item_id)
+    if not item:
+        return jsonify({"error": "not found"}), 404
+    ok, msg = _send_one_outreach(item)
+    return (jsonify({"sent": True}) if ok else jsonify({"error": msg}), 200 if ok else 400)
+
+
+@app.route("/api/outreach/send-approved", methods=["POST"])
+def outreach_send_approved():
+    sent = 0
+    for item in db.list_outreach():
+        if item.get("status") == "draft":
+            ok, _ = _send_one_outreach(item)
+            sent += 1 if ok else 0
+    return jsonify({"sent": sent})
 
 
 if __name__ == "__main__":

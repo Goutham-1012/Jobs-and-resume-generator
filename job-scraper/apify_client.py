@@ -241,17 +241,19 @@ ACTORS = {
 
 
 def get_tokens():
-    """All Apify tokens to rotate through. Supports (in priority order, merged):
+    """All Apify tokens to rotate through. Supports (merged):
       APIFY_TOKENS=tok1,tok2,tok3   (comma-separated — easiest for many accounts)
       APIFY_TOKEN=tok               (single — backward compatible)
       APIFY_TOKEN_1, APIFY_TOKEN_2, ...  (numbered)
-    Placeholders and duplicates are dropped; order is preserved."""
+    Either variable may hold multiple tokens separated by commas, spaces, semicolons,
+    or newlines — they are all split apart. Placeholders/duplicates dropped, order kept."""
+    import re
     raw = []
-    raw += (os.environ.get("APIFY_TOKENS") or "").split(",")
-    raw.append(os.environ.get("APIFY_TOKEN") or "")
+    for var in ("APIFY_TOKENS", "APIFY_TOKEN"):
+        raw += re.split(r"[\s,;]+", os.environ.get(var) or "")
     i = 1
     while os.environ.get(f"APIFY_TOKEN_{i}"):
-        raw.append(os.environ[f"APIFY_TOKEN_{i}"])
+        raw += re.split(r"[\s,;]+", os.environ[f"APIFY_TOKEN_{i}"])
         i += 1
     seen, out = set(), []
     for t in (x.strip() for x in raw):

@@ -65,15 +65,34 @@ def init_db():
             preview TEXT,
             data_json TEXT,
             error TEXT,
-            model TEXT
+            model TEXT,
+            job_id INTEGER
         );
         CREATE INDEX IF NOT EXISTS idx_rq_status ON resume_queue(status, position);
+
+        CREATE TABLE IF NOT EXISTS outreach (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT NOT NULL,
+            resume_queue_id INTEGER,
+            company TEXT,
+            job_title TEXT,
+            contact_name TEXT,
+            contact_title TEXT,
+            contact_email TEXT,
+            subject TEXT,
+            body TEXT,
+            status TEXT DEFAULT 'draft',
+            error TEXT,
+            sent_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_outreach_status ON outreach(status);
         """
     )
     # Migrations for pre-existing databases (CREATE TABLE IF NOT EXISTS won't add columns).
     for stmt in (
         "ALTER TABLE jobs ADD COLUMN seen INTEGER DEFAULT 0",
         "ALTER TABLE resume_queue ADD COLUMN model TEXT",
+        "ALTER TABLE resume_queue ADD COLUMN job_id INTEGER",
     ):
         try:
             conn.execute(stmt)
@@ -214,11 +233,11 @@ def enqueue_resume(item):
     pos = (conn.execute("SELECT COALESCE(MAX(position), 0) FROM resume_queue").fetchone()[0]) + 1
     cur = conn.execute(
         "INSERT INTO resume_queue (created_at, position, profile_id, profile_name, "
-        "label, company, title, job_description, model, status) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued')",
+        "label, company, title, job_description, model, job_id, status) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued')",
         (now_iso(), pos, item.get("profile_id"), item.get("profile_name"),
          item.get("label"), item.get("company"), item.get("title"),
-         item.get("job_description"), item.get("model")),
+         item.get("job_description"), item.get("model"), item.get("job_id")),
     )
     conn.commit()
     rid = cur.lastrowid
@@ -340,3 +359,64 @@ def reorder_queue(ordered_ids):
         conn.execute("UPDATE resume_queue SET position = ? WHERE id = ?", (pos, iid))
     conn.commit()
     conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Outreach (Apollo contacts + AI-drafted emails, reviewed then sent via Gmail)
+# ---------------------------------------------------------------------------
+def add_outreach(item):
+    conn = get_conn()
+    cur = conn.execute(
+        "INSERT INTO outreach (created_at, resume_queue_id, company, job_title, "
+        "contact_name, contact_title, contact_email, subject, body, status) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft')",
+        (now_iso(), item.get("resume_queue_id"), item.get("company"), item.get("job_title"),
+         item.get("contact_name"), item.get("contact_title"), item.get("contact_email"),
+         item.get("subject"), item.get("body")),
+    )
+    conn.commit()
+    rid = cur.lastrowid
+    conn.close()
+    return rid
+
+
+def list_outreach():
+    conn = get_conn()
+    rows = [dict(r) for r in conn.execute(
+        "SELECT * FROM outreach ORDER BY id DESC").fetchall()]
+    conn.close()
+    return rows
+
+
+def get_outreach(item_id):
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM outreach WHERE id = ?", (item_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def update_outreach(item_id, **fields):
+    if not fields:
+        return
+    cols = ", ".join(f"{k} = ?" for k in fields)
+    conn = get_conn()
+    conn.execute(f"UPDATE outreach SET {cols} WHERE id = ?", (*fields.values(), item_id))
+    conn.commit()
+    conn.close()
+
+
+def delete_outreach(item_id):
+    conn = get_conn()
+    conn.execute("DELETE FROM outreach WHERE id = ?", (item_id,))
+    conn.commit()
+    conn.close()
+
+
+def outreach_exists(resume_queue_id, contact_email):
+    """Avoid duplicate drafts for the same résumé+contact."""
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT 1 FROM outreach WHERE resume_queue_id = ? AND contact_email = ?",
+        (resume_queue_id, contact_email)).fetchone()
+    conn.close()
+    return row is not None
