@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Outreach</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1><span class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="m4 6 8 6 8-6"/></svg></span> Outreach</h1>
+    <span class="sub">Apollo contacts · AI drafts · Gmail send (résumé attached)</span>
+    <nav class="nav"><a href="/">← Job Dashboard</a> &nbsp; <a href="/resume">Resume Generator</a></nav>
+  </header>
+
+  <section class="panel">
+    <div class="toolbar">
+      <strong>Jobs with a tailored résumé</strong>
+      <span class="counts"><button id="refreshBtn" class="mini">Refresh</button></span>
+    </div>
+    <ul id="candList" class="queue"></ul>
+    <div id="candEmpty" class="empty">No completed résumés yet — generate some on the Resume page, then draft outreach here.</div>
+    <div id="status" class="status"></div>
+  </section>
+
+  <section class="panel" id="outreachPanel" style="display:none">
+    <div class="toolbar">
+      <strong>Outreach drafts (<span id="draftCount">0</span>)</strong>
+      <span class="counts">
+        <button id="sendAllBtn" class="mini">Send all drafts</button>
+      </span>
+    </div>
+    <div id="outreachList"></div>
+  </section>
+
+  <script src="/static/outreach.js"></script>
+</body>
+</html>

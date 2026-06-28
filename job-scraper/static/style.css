@@ -185,6 +185,10 @@ tr.unseen td:first-child { box-shadow: inset 3px 0 0 var(--accent); font-weight:
   font-size: 13px; line-height: 1.6; color: var(--text); margin: 0; max-height: 70vh; overflow: auto;
   background: var(--bg-soft); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 16px;
 }
+.ocard { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px; margin-bottom: 14px; background: var(--bg-soft); }
+.ocard .ohead { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
+.osubject { width: 100%; margin-bottom: 8px; font-weight: 600; }
+.obody { width: 100%; font-family: ui-monospace, Consolas, monospace; font-size: 13px; line-height: 1.5; }
 .model-row { margin-top: 12px; max-width: 460px; }
 .model-row select { width: 100%; }
 .profile-bar { display: flex; align-items: flex-end; gap: 10px; margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
