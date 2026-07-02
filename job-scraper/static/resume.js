@@ -1,8 +1,17 @@
 const $ = (id) => document.getElementById(id);
 let queue = [];        // [{id, profileId, jobDescription, company, title, status, data, ...}]
+let queueTiming = {};  // {avg_seconds, queued, generating, done, eta_seconds}
 let processing = false;
 let nextId = 1;
 let profiles = [];
+
+function fmtDur(s) {
+  if (s == null) return "";
+  s = Math.round(s);
+  if (s < 60) return s + "s";
+  const m = Math.floor(s / 60), sec = s % 60;
+  return sec ? `${m}m ${sec}s` : `${m}m`;
+}
 
 // ---- Profiles ----
 const PF_FIELDS = ["name", "email", "phone", "linkedin", "github", "portfolio",
@@ -131,11 +140,24 @@ const ICON = { queued: "⏳", generating: "⚙️", done: "✅", error: "❌" };
 function renderQueue() {
   $("queuePanel").style.display = queue.length ? "block" : "none";
   $("queueCount").textContent = queue.length;
+
+  // Queue-level timing summary: average generation time + ETA for what's still waiting.
+  const t = queueTiming || {};
+  const bits = [];
+  if (t.avg_seconds) bits.push(`avg ${fmtDur(t.avg_seconds)}/resume`);
+  if (t.queued) bits.push(`${t.queued} waiting`);
+  if (t.eta_seconds && (t.queued || t.generating)) bits.push(`~${fmtDur(t.eta_seconds)} left`);
+  $("queueTiming").textContent = bits.join(" · ");
+
   $("queueList").innerHTML = queue.map((item) => {
     const m = item.model ? ` · ${item.model}` : "";
+    const t2 = item.elapsed_seconds;
     const note = item.status === "error" ? (item.error || "error")
-      : item.status === "done" ? `ATS ${item.ats}% · ${item.saved_path || ""}`
-      : item.status + m;
+      : item.status === "done"
+        ? `ATS ${item.ats}%${t2 != null ? ` · took ${fmtDur(t2)}` : ""}${item.saved_path ? ` · ${item.saved_path}` : ""}`
+      : item.status === "generating"
+        ? `generating${m}${t2 != null ? ` · ${fmtDur(t2)}…` : ""}`
+        : item.status + m;
     const draggable = item.status === "queued";
     return `
     <li class="qitem${draggable ? " draggable" : ""}" data-id="${item.id}" ${draggable ? 'draggable="true"' : ""}>
@@ -156,7 +178,9 @@ async function refreshQueue() {
   if (isDragging) return;  // don't rebuild the list under the pointer mid-drag
   try {
     const r = await fetch("/api/resume/queue");
-    queue = (await r.json()).queue || [];
+    const d = await r.json();
+    queue = d.queue || [];
+    queueTiming = d.timing || {};
     renderQueue();
   } catch (_) { /* ignore transient poll errors */ }
 }

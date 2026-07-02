@@ -299,10 +299,15 @@ def run_actor(source_key, limit, params):
     n = len(tokens)
     start = _token_start % n
     last_err = ""
+    # maxItems is a RUN option (not actor input): pay-per-result actors reject a run with
+    # no positive cap ("maximum charged results must be greater than zero"), and it also
+    # protects every actor from runaway charges. Cap the run at the requested per-source limit.
+    run_params = {"maxItems": max(int(limit), 1)}
     for offset in range(n):
         idx = (start + offset) % n
         try:
-            resp = requests.post(url, params={"token": tokens[idx]}, json=body, timeout=TIMEOUT)
+            resp = requests.post(url, params={"token": tokens[idx], **run_params},
+                                 json=body, timeout=TIMEOUT)
         except requests.exceptions.RequestException as e:
             last_err = f"request error — {e}"
             continue

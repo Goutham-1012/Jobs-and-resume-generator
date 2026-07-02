@@ -262,10 +262,11 @@ def scrape():
 
     db.finish_run(run_id, all_inserted, "done", log)
 
-    # Auto-enqueue a tailored resume for each newly-scraped job under the chosen profile.
+    # Auto-enqueue a tailored resume for each newly-scraped job under the chosen profile,
+    # newest-posted first (same order as the dashboard's Posted-date sort).
     queued = 0
     if profile:
-        for job in db.query_jobs(run_id=run_id):
+        for job in db.query_jobs(run_id=run_id, sort="posted_date", order="desc"):
             jd = "\n".join(filter(None, [
                 job.get("title"),
                 f"Company: {job.get('company','')}".strip(),
@@ -433,9 +434,45 @@ def resume_enqueue():
     return jsonify({"id": rid})
 
 
+def _iso(s):
+    from datetime import datetime
+    try:
+        return datetime.fromisoformat(s) if s else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _annotate_timing(rows):
+    """Attach per-item elapsed_seconds (generation time for done, running time for the
+    in-progress item) and return queue-level timing stats: average generation time from
+    completed items plus an ETA for everything still waiting."""
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    done_durations = []
+    for r in rows:
+        st, fin = _iso(r.get("started_at")), _iso(r.get("finished_at"))
+        secs = None
+        if r.get("status") == "done" and st and fin:
+            secs = (fin - st).total_seconds()
+            if secs >= 0:
+                done_durations.append(secs)
+        elif r.get("status") == "generating" and st:
+            secs = (now - st).total_seconds()
+        r["elapsed_seconds"] = round(secs) if secs is not None and secs >= 0 else None
+    avg = round(sum(done_durations) / len(done_durations)) if done_durations else None
+    n_queued = sum(1 for r in rows if r.get("status") == "queued")
+    n_generating = sum(1 for r in rows if r.get("status") == "generating")
+    eta = avg * (n_queued + n_generating) if avg else None
+    return {"avg_seconds": avg, "queued": n_queued, "generating": n_generating,
+            "done": sum(1 for r in rows if r.get("status") == "done"),
+            "eta_seconds": eta}
+
+
 @app.route("/api/resume/queue")
 def resume_queue():
-    return jsonify({"queue": db.list_resume_queue()})
+    rows = db.list_resume_queue()
+    timing = _annotate_timing(rows)  # mutates rows to add elapsed_seconds
+    return jsonify({"queue": rows, "timing": timing})
 
 
 @app.route("/api/resume/queue/reorder", methods=["POST"])

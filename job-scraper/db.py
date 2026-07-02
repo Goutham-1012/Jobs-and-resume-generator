@@ -93,6 +93,8 @@ def init_db():
         "ALTER TABLE jobs ADD COLUMN seen INTEGER DEFAULT 0",
         "ALTER TABLE resume_queue ADD COLUMN model TEXT",
         "ALTER TABLE resume_queue ADD COLUMN job_id INTEGER",
+        "ALTER TABLE resume_queue ADD COLUMN started_at TEXT",   # when generation began
+        "ALTER TABLE resume_queue ADD COLUMN finished_at TEXT",  # when it finished/failed
     ):
         try:
             conn.execute(stmt)
@@ -250,20 +252,22 @@ def list_resume_queue():
     conn = get_conn()
     rows = [dict(r) for r in conn.execute(
         "SELECT id, created_at, position, profile_id, profile_name, label, company, "
-        "title, status, ats, saved_path, preview, error, model "
+        "title, status, ats, saved_path, preview, error, model, started_at, finished_at "
         "FROM resume_queue ORDER BY position ASC, id ASC").fetchall()]
     conn.close()
     return rows
 
 
 def claim_next_queued():
-    """Atomically mark the lowest-position queued item as generating and return it."""
+    """Atomically mark the lowest-position queued item as generating and return it.
+    Stamps started_at so the queue can report per-item generation time."""
     conn = get_conn()
     row = conn.execute(
-        "UPDATE resume_queue SET status='generating' "
+        "UPDATE resume_queue SET status='generating', started_at=?, finished_at=NULL "
         "WHERE id = (SELECT id FROM resume_queue WHERE status='queued' "
         "            ORDER BY position ASC, id ASC LIMIT 1) "
-        "RETURNING *"
+        "RETURNING *",
+        (now_iso(),),
     ).fetchone()
     conn.commit()
     result = dict(row) if row else None
@@ -274,6 +278,9 @@ def claim_next_queued():
 def update_queue_item(item_id, **fields):
     if not fields:
         return
+    # Stamp finish time when an item reaches a terminal state (for timing stats).
+    if fields.get("status") in ("done", "error") and "finished_at" not in fields:
+        fields["finished_at"] = now_iso()
     cols = ", ".join(f"{k} = ?" for k in fields)
     conn = get_conn()
     conn.execute(f"UPDATE resume_queue SET {cols} WHERE id = ?",
@@ -307,7 +314,8 @@ def retry_queue_item(item_id):
     pos = conn.execute("SELECT COALESCE(MAX(position), 0) FROM resume_queue").fetchone()[0] + 1
     cur = conn.execute(
         "UPDATE resume_queue SET status='queued', error=NULL, ats=NULL, saved_path=NULL, "
-        "preview=NULL, data_json=NULL, position=? WHERE id=? AND status!='generating'",
+        "preview=NULL, data_json=NULL, started_at=NULL, finished_at=NULL, position=? "
+        "WHERE id=? AND status!='generating'",
         (pos, item_id),
     )
     conn.commit()
@@ -320,7 +328,8 @@ def requeue_stuck():
     """On startup, return any items left 'generating' (from a crash/restart) to the
     queue so the worker re-processes them. Returns how many were recovered."""
     conn = get_conn()
-    cur = conn.execute("UPDATE resume_queue SET status='queued' WHERE status='generating'")
+    cur = conn.execute("UPDATE resume_queue SET status='queued', started_at=NULL "
+                       "WHERE status='generating'")
     conn.commit()
     n = cur.rowcount
     conn.close()
