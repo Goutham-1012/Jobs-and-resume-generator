@@ -85,6 +85,7 @@ function rowHtml(j) {
     ? `<a href="${esc(j.url)}" target="_blank" rel="noopener" data-job-id="${j.id}">Open ↗</a>` +
       (unseen ? ` <span class="badge unseen-badge">Unseen</span>` : "")
     : "";
+  const queueBtn = `<div><button class="mini" data-enqueue="${j.id}" title="Add to resume generation queue">+ Queue</button></div>`;
   return `
     <tr class="${unseen ? "unseen" : ""}">
       <td>${unseen ? '<span class="unseen-dot" title="Unseen"></span>' : ""}${esc(j.title)}</td>
@@ -93,7 +94,7 @@ function rowHtml(j) {
       <td>${esc(j.salary)}</td>
       <td><span class="badge">${esc(j.source)}</span></td>
       <td>${esc((j.posted_date || "").slice(0, 10))}</td>
-      <td>${link}</td>
+      <td>${link}${queueBtn}</td>
     </tr>`;
 }
 
@@ -134,9 +135,28 @@ document.querySelectorAll("th[data-sort]").forEach((th) => {
   });
 });
 
-$("jobsBody").addEventListener("click", (e) => {
+$("jobsBody").addEventListener("click", async (e) => {
   const a = e.target.closest("a[data-job-id]");
-  if (a) markSeen(a.dataset.jobId);  // link still opens in a new tab
+  if (a) { markSeen(a.dataset.jobId); return; }  // link still opens in a new tab
+  const btn = e.target.closest("button[data-enqueue]");
+  if (!btn) return;
+  const profileId = $("scrapeProfile").value;
+  if (!profileId) { setStatus("Pick a profile above first."); return; }
+  btn.disabled = true;
+  try {
+    const r = await fetch(`/api/jobs/${btn.dataset.enqueue}/enqueue`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ profileId }),
+    });
+    const d = await r.json();
+    if (!r.ok) { btn.disabled = false; setStatus("Could not queue: " + (d.error || r.status)); return; }
+    btn.textContent = "Queued ✓";
+    $("viewQueueLink").style.display = "inline";
+    setStatus("Added to the resume queue.");
+  } catch (err) {
+    btn.disabled = false;
+    setStatus("Could not queue: " + err.message);
+  }
 });
 async function loadScrapeProfiles() {
   try {

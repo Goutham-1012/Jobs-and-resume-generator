@@ -116,6 +116,18 @@ def get_profile(profile_id):
     return None
 
 
+def _job_jd(job):
+    """Build the job-description text for a scraped job. Shared by the scrape auto-enqueue
+    and the manual "Add to queue" button so both produce identical queue items."""
+    return "\n".join(filter(None, [
+        job.get("title"),
+        f"Company: {job.get('company','')}".strip(),
+        f"Location: {job.get('location','')}".strip(),
+        "",
+        job.get("description") or "",
+    ]))
+
+
 def seed_default_profile():
     """Create the default (Goutham) profile from the existing base résumé + constants
     on first run, so behavior is unchanged. Stores the full base text as `resume_text`."""
@@ -267,13 +279,6 @@ def scrape():
     queued = 0
     if profile:
         for job in db.query_jobs(run_id=run_id, sort="posted_date", order="desc"):
-            jd = "\n".join(filter(None, [
-                job.get("title"),
-                f"Company: {job.get('company','')}".strip(),
-                f"Location: {job.get('location','')}".strip(),
-                "",
-                job.get("description") or "",
-            ]))
             db.enqueue_resume({
                 "profile_id": profile["id"],
                 "profile_name": profile.get("name"),
@@ -281,7 +286,7 @@ def scrape():
                 "company": job.get("company") or "",
                 "title": job.get("title") or "",
                 "job_id": job.get("id"),
-                "job_description": jd,
+                "job_description": _job_jd(job),
             })
             queued += 1
 
@@ -325,6 +330,29 @@ def jobs():
 def mark_job_seen(job_id):
     db.mark_seen(job_id)
     return jsonify({"ok": True})
+
+
+@app.route("/api/jobs/<int:job_id>/enqueue", methods=["POST"])
+def enqueue_job(job_id):
+    """Manually add one scraped job to the resume queue (same item shape as the scrape
+    auto-enqueue, including job_id). Uses the profile chosen on the dashboard."""
+    data = request.get_json(silent=True) or {}
+    profile = get_profile(data.get("profileId"))
+    if not profile:
+        return jsonify({"error": "Select a profile first."}), 400
+    job = db.get_job(job_id)
+    if not job:
+        return jsonify({"error": "Job not found."}), 404
+    rid = db.enqueue_resume({
+        "profile_id": profile["id"],
+        "profile_name": profile.get("name"),
+        "label": job.get("title") or "Untitled",
+        "company": job.get("company") or "",
+        "title": job.get("title") or "",
+        "job_id": job.get("id"),
+        "job_description": _job_jd(job),
+    })
+    return jsonify({"id": rid})
 
 
 @app.route("/api/runs")

@@ -131,6 +131,14 @@ def finish_run(run_id, total_jobs, status, log):
     conn.close()
 
 
+def get_job(job_id):
+    """Fetch a single scraped job by id (or None)."""
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
 def _dedupe_key(j):
     """Stable duplicate key for a job: title|company|location|url (lowercased/trimmed).
     Shared by scrape-insert and import so both dedupe identically."""
