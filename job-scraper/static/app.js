@@ -147,6 +147,60 @@ async function loadScrapeProfiles() {
   } catch (_) { /* ignore */ }
 }
 
+// ---- Export / import scraped jobs (runs + jobs only; never the resume queue) ----
+async function exportDb() {
+  setStatus("Preparing export…");
+  try {
+    const r = await fetch("/api/db/export");
+    if (!r.ok) { setStatus("Export failed."); return; }
+    const data = await r.json();
+    const blob = new Blob([JSON.stringify(data, null, 1)], { type: "application/json" });
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+    const filename = `jobscraper-jobs-${stamp}.json`;
+    if (window.showSaveFilePicker) {
+      try {
+        const handle = await window.showSaveFilePicker({
+          suggestedName: filename,
+          types: [{ description: "JSON", accept: { "application/json": [".json"] } }],
+        });
+        const w = await handle.createWritable(); await w.write(blob); await w.close();
+        setStatus(`Exported ${data.jobs.length} job(s) and ${data.runs.length} run(s).`);
+        return;
+      } catch (e) { if (e.name === "AbortError") { setStatus("Export cancelled."); return; } }
+    }
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = filename; a.click();
+    setStatus(`Exported ${data.jobs.length} job(s) and ${data.runs.length} run(s).`);
+  } catch (e) { setStatus("Export failed: " + e.message); }
+}
+
+async function importDb(file) {
+  if (!file) return;
+  setStatus("Importing…");
+  let payload;
+  try { payload = JSON.parse(await file.text()); }
+  catch (_) { setStatus("That file isn't valid JSON."); return; }
+  try {
+    const r = await fetch("/api/db/import", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const d = await r.json();
+    if (!r.ok) { setStatus("Import failed: " + (d.error || r.status)); return; }
+    setStatus(`Imported ${d.jobs_added} new job(s), skipped ${d.jobs_skipped} duplicate(s).`);
+    await loadRuns();
+    await loadJobs();
+  } catch (e) { setStatus("Import failed: " + e.message); }
+}
+
+$("exportBtn").addEventListener("click", exportDb);
+$("importBtn").addEventListener("click", () => $("importFile").click());
+$("importFile").addEventListener("change", (e) => {
+  const f = e.target.files[0];
+  importDb(f);
+  e.target.value = "";  // allow re-selecting the same file
+});
+
 $("scrapeBtn").addEventListener("click", scrape);
 $("search").addEventListener("input", () => { clearTimeout(window._t); window._t = setTimeout(loadJobs, 250); });
 $("sourceFilter").addEventListener("change", loadJobs);

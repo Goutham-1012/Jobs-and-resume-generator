@@ -65,6 +65,11 @@
       </select>
       <select id="runFilter"><option value="">All runs</option></select>
       <span id="counts" class="counts"></span>
+      <span class="counts" style="margin-left:auto">
+        <button id="exportBtn" class="mini" title="Download scraped jobs (not the resume queue)">Export jobs</button>
+        <button id="importBtn" class="mini" title="Merge a jobs export into this machine (queue untouched)">Import jobs</button>
+        <input id="importFile" type="file" accept=".json,application/json" style="display:none">
+      </span>
     </div>
 
     <table id="jobsTable">

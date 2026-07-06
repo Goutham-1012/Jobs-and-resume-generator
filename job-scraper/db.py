@@ -131,19 +131,23 @@ def finish_run(run_id, total_jobs, status, log):
     conn.close()
 
 
+def _dedupe_key(j):
+    """Stable duplicate key for a job: title|company|location|url (lowercased/trimmed).
+    Shared by scrape-insert and import so both dedupe identically."""
+    return "|".join([
+        (j.get("title") or "").strip().lower(),
+        (j.get("company") or "").strip().lower(),
+        (j.get("location") or "").strip().lower(),
+        (j.get("url") or "").strip().lower(),
+    ])
+
+
 def insert_jobs(run_id, jobs):
     """Insert normalized job dicts. Returns number of newly inserted rows."""
     conn = get_conn()
     inserted = 0
     for j in jobs:
-        dedupe_key = "|".join(
-            [
-                (j.get("title") or "").strip().lower(),
-                (j.get("company") or "").strip().lower(),
-                (j.get("location") or "").strip().lower(),
-                (j.get("url") or "").strip().lower(),
-            ]
-        )
+        dedupe_key = _dedupe_key(j)
         cur = conn.execute(
             "INSERT OR IGNORE INTO jobs "
             "(run_id, source, title, company, location, salary, posted_date, url, description, scraped_at, dedupe_key) "
@@ -166,6 +170,88 @@ def insert_jobs(run_id, jobs):
     conn.commit()
     conn.close()
     return inserted
+
+
+# ---------------------------------------------------------------------------
+# Export / import of the scraped-jobs database (runs + jobs only).
+# resume_queue and outreach are intentionally excluded — moving jobs between
+# machines must never touch the local resume queue.
+# ---------------------------------------------------------------------------
+def export_data():
+    """Return a portable dict of runs + jobs (including the `seen` flag)."""
+    conn = get_conn()
+    runs = [dict(r) for r in conn.execute("SELECT * FROM runs ORDER BY id ASC").fetchall()]
+    jobs = [dict(r) for r in conn.execute("SELECT * FROM jobs ORDER BY id ASC").fetchall()]
+    conn.close()
+    return {"format": "jobscraper-db", "version": 1, "exported_at": now_iso(),
+            "runs": runs, "jobs": jobs}
+
+
+def import_data(payload):
+    """Merge an exported runs+jobs dict into the local DB (dedupe via dedupe_key).
+
+    Run ids are remapped to fresh autoincrement ids so imported runs never collide
+    with local ones. Jobs use INSERT OR IGNORE on dedupe_key, so duplicates are skipped
+    and re-importing the same file is idempotent. Never touches resume_queue/outreach.
+    Atomic: any error rolls the whole import back. Returns per-category counts."""
+    if not isinstance(payload, dict) or payload.get("format") != "jobscraper-db":
+        raise ValueError("Not a jobscraper export file.")
+    runs = payload.get("runs") or []
+    jobs = payload.get("jobs") or []
+    if not isinstance(runs, list) or not isinstance(jobs, list):
+        raise ValueError("Malformed export: 'runs' and 'jobs' must be lists.")
+
+    runs_by_id = {r["id"]: r for r in runs if isinstance(r, dict) and r.get("id") is not None}
+    conn = get_conn()
+    counts = {"runs_added": 0, "jobs_added": 0, "jobs_skipped": 0}
+    id_map = {}
+
+    def local_run(old_id):
+        """Create the local run row lazily — only when a job actually needs it — so
+        deduped/re-imported files never leave behind orphan empty runs."""
+        if old_id in id_map:
+            return id_map[old_id]
+        src = runs_by_id.get(old_id)
+        if src is None:
+            id_map[old_id] = None
+            return None
+        cur = conn.execute(
+            "INSERT INTO runs (created_at, keywords, location, limit_per_actor, sources, "
+            "total_jobs, status, log) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (src.get("created_at") or now_iso(), src.get("keywords"), src.get("location"),
+             src.get("limit_per_actor"), src.get("sources"), src.get("total_jobs") or 0,
+             src.get("status") or "done", src.get("log")),
+        )
+        id_map[old_id] = cur.lastrowid
+        counts["runs_added"] += 1
+        return id_map[old_id]
+
+    try:
+        with conn:  # commits on success, rolls back on any exception
+            for j in jobs:
+                if not isinstance(j, dict):
+                    continue
+                key = j.get("dedupe_key") or _dedupe_key(j)
+                if conn.execute("SELECT 1 FROM jobs WHERE dedupe_key = ?", (key,)).fetchone():
+                    counts["jobs_skipped"] += 1
+                    continue
+                conn.execute(
+                    "INSERT OR IGNORE INTO jobs (run_id, source, title, company, location, "
+                    "salary, posted_date, url, description, scraped_at, dedupe_key, seen) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (local_run(j.get("run_id")), j.get("source"), j.get("title"),
+                     j.get("company"), j.get("location"), j.get("salary"),
+                     j.get("posted_date"), j.get("url"), j.get("description"),
+                     j.get("scraped_at") or now_iso(), key, 1 if j.get("seen") else 0),
+                )
+                counts["jobs_added"] += 1
+            # Keep each imported run's total_jobs accurate (some jobs may have deduped away).
+            for new_id in filter(None, id_map.values()):
+                n = conn.execute("SELECT COUNT(*) FROM jobs WHERE run_id = ?", (new_id,)).fetchone()[0]
+                conn.execute("UPDATE runs SET total_jobs = ? WHERE id = ?", (n, new_id))
+    finally:
+        conn.close()
+    return counts
 
 
 def query_jobs(run_id=None, source=None, search=None, sort="scraped_at", order="desc"):

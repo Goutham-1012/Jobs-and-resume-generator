@@ -288,6 +288,24 @@ def scrape():
     return jsonify({"run_id": run_id, "inserted": all_inserted, "log": log, "queued": queued})
 
 
+@app.route("/api/db/export")
+def db_export():
+    """Download the scraped-jobs database (runs + jobs only; not the resume queue)."""
+    return jsonify(db.export_data())
+
+
+@app.route("/api/db/import", methods=["POST"])
+def db_import():
+    """Merge an exported runs+jobs file into the local DB (dedupe; queue untouched)."""
+    payload = request.get_json(force=True, silent=True)
+    if payload is None:
+        return jsonify({"error": "Could not read the file as JSON."}), 400
+    try:
+        return jsonify(db.import_data(payload))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+
 @app.route("/api/jobs")
 def jobs():
     run_id = request.args.get("run_id", type=int)
