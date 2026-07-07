@@ -8,7 +8,9 @@ DB_PATH = os.path.join(os.path.dirname(__file__), "jobs.db")
 
 
 def get_conn():
-    conn = sqlite3.connect(DB_PATH)
+    # timeout=30 so concurrent writers (the parallel resume workers) wait for the lock
+    # instead of raising "database is locked".
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -390,11 +392,16 @@ def get_queue_item(item_id):
     return dict(row) if row else None
 
 
-def delete_queue_item(item_id):
-    """Delete any item that isn't currently generating. Returns True if removed."""
+def delete_queue_item(item_id, force=False):
+    """Delete a queue item. By default refuses to delete one that's currently 'generating'
+    (a user 'Remove' shouldn't nuke a live generation). `force=True` deletes regardless of
+    status — used by the worker to clean up an item it just cancelled/finished, which it
+    owns. Returns True if a row was removed."""
     conn = get_conn()
-    cur = conn.execute(
-        "DELETE FROM resume_queue WHERE id = ? AND status != 'generating'", (item_id,))
+    sql = "DELETE FROM resume_queue WHERE id = ?"
+    if not force:
+        sql += " AND status != 'generating'"
+    cur = conn.execute(sql, (item_id,))
     conn.commit()
     removed = cur.rowcount > 0
     conn.close()
@@ -419,13 +426,16 @@ def retry_queue_item(item_id):
 
 
 def requeue_stuck():
-    """On startup, return any items left 'generating' (from a crash/restart) to the
-    queue so the worker re-processes them. Returns how many were recovered."""
+    """On startup, return any items left 'generating' (from a crash/restart) to the queue
+    so the worker re-processes them, and drop any 'canceling' items (the user asked to
+    remove them and the in-memory cancel set is empty after a restart). Returns how many
+    'generating' items were recovered."""
     conn = get_conn()
     cur = conn.execute("UPDATE resume_queue SET status='queued', started_at=NULL "
                        "WHERE status='generating'")
-    conn.commit()
     n = cur.rowcount
+    conn.execute("DELETE FROM resume_queue WHERE status='canceling'")
+    conn.commit()
     conn.close()
     return n
 

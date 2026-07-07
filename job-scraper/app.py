@@ -2,6 +2,7 @@
 import os
 import json
 import uuid
+import threading
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from dotenv import load_dotenv
@@ -26,6 +27,30 @@ GENERATED_DIR = os.path.join(os.path.dirname(__file__), "generated_resumes")
 os.makedirs(GENERATED_DIR, exist_ok=True)
 # Excel-openable log of every generated resume and the JD it was tailored for.
 RESUME_LOG = os.path.join(GENERATED_DIR, "resumes_log.csv")
+
+# Serializes the ~100ms final save step so concurrent workers can't collide on a .docx
+# filename or interleave rows in the CSV log.
+_save_lock = threading.Lock()
+
+# Cooperative cancellation registry for in-progress resume generations. A Flask request
+# thread adds an id; the worker thread polls it between OpenAI calls and aborts.
+_cancel_lock = threading.Lock()
+_cancels = set()
+
+
+def _request_cancel(item_id):
+    with _cancel_lock:
+        _cancels.add(item_id)
+
+
+def _is_canceled(item_id):
+    with _cancel_lock:
+        return item_id in _cancels
+
+
+def _clear_cancel(item_id):
+    with _cancel_lock:
+        _cancels.discard(item_id)
 
 
 def _sanitize(text):
@@ -66,16 +91,18 @@ def _save_generated(resume_data, job_description="", company="", title=""):
         parts.append(_sanitize(title))
     parts.append(stamp)
     base = "_".join(parts)
-    filename = base + ".docx"
-    path = os.path.join(GENERATED_DIR, filename)
-    counter = 2
-    while os.path.exists(path):  # avoid collision on rapid back-to-back saves
-        filename = f"{base}_{counter}.docx"
+    # Serialize filename selection + render + CSV append so parallel workers don't collide.
+    with _save_lock:
+        filename = base + ".docx"
         path = os.path.join(GENERATED_DIR, filename)
-        counter += 1
-    resume_gen.render_docx(resume_data, path)
-    _log_generation(filename, company, title, job_description,
-                    resume_data.get("ats_score", ""))
+        counter = 2
+        while os.path.exists(path):  # avoid collision on rapid back-to-back saves
+            filename = f"{base}_{counter}.docx"
+            path = os.path.join(GENERATED_DIR, filename)
+            counter += 1
+        resume_gen.render_docx(resume_data, path)
+        _log_generation(filename, company, title, job_description,
+                        resume_data.get("ats_score", ""))
     return path
 
 
@@ -184,9 +211,10 @@ import time
 
 
 def _process_queue_item(item):
+    item_id = item["id"]
     profile = get_profile(item.get("profile_id"))
     if not profile:
-        db.update_queue_item(item["id"], status="error", error="Profile not found")
+        db.update_queue_item(item_id, status="error", error="Profile not found")
         return
     try:
         result = resume_gen.generate_resume(
@@ -194,42 +222,60 @@ def _process_queue_item(item):
             item.get("job_description", ""),
             model=item.get("model") or None,
             expected_companies=profile.get("employers") or None,
+            cancel_check=lambda: _is_canceled(item_id),
         )
+        # Finished-just-before-cancel race: if it was stopped while the last call ran,
+        # discard the result and remove the item instead of saving it. force=True because
+        # the row may still be 'generating' if the cancel flag was seen before the route's
+        # status update committed — the worker owns this item, so clean it up regardless.
+        if _is_canceled(item_id):
+            db.delete_queue_item(item_id, force=True)
+            return
         result["_contact"] = profile_contact(profile)
         saved_path = _save_generated(result, item.get("job_description", ""),
                                      item.get("company", ""), item.get("title", ""))
         db.update_queue_item(
-            item["id"], status="done", ats=result.get("ats_score"),
+            item_id, status="done", ats=result.get("ats_score"),
             saved_path=os.path.basename(saved_path),
             preview=resume_gen.data_to_text(result),
             data_json=json.dumps(result),
         )
+    except resume_gen.Cancelled:      # must precede Exception (it is a subclass)
+        db.delete_queue_item(item_id, force=True)  # worker owns it; remove regardless of status
     except Exception as e:  # noqa: BLE001 - surface any failure on the item
-        db.update_queue_item(item["id"], status="error", error=str(e)[:300])
+        db.update_queue_item(item_id, status="error", error=str(e)[:300])
+    finally:
+        _clear_cancel(item_id)
 
 
 def _queue_worker():
     while True:
-        item = db.claim_next_queued()
-        if not item:
-            time.sleep(2)
-            continue
-        _process_queue_item(item)
+        try:
+            item = db.claim_next_queued()
+            if not item:
+                time.sleep(2)
+                continue
+            _process_queue_item(item)
+        except Exception as e:  # noqa: BLE001 - a transient fault must never kill a worker
+            print(f"[warn] queue worker error: {e}")
+            time.sleep(1)
 
 
 _worker_started = False
 
 
 def _start_worker():
-    """Start the single background worker (idempotent). The app runs without the
-    Flask reloader (see __main__), so this is one process / one worker; the atomic
-    claim in db.claim_next_queued is the safety net if ever run twice."""
+    """Start the background resume workers (idempotent). Runs RESUME_WORKERS threads
+    (default 3) so several resumes generate in parallel; db.claim_next_queued is an atomic
+    claim, so each thread picks a distinct item with no double-processing."""
     global _worker_started
     if _worker_started:
         return
     _worker_started = True
     db.requeue_stuck()  # recover items left mid-generation by a previous run
-    threading.Thread(target=_queue_worker, daemon=True).start()
+    n = max(1, int(os.environ.get("RESUME_WORKERS", "3")))
+    for _ in range(n):
+        threading.Thread(target=_queue_worker, daemon=True).start()
 
 
 @app.route("/")
@@ -531,6 +577,22 @@ def resume_queue_reorder():
 @app.route("/api/resume/queue/<int:item_id>", methods=["DELETE"])
 def resume_queue_delete(item_id):
     return jsonify({"removed": db.delete_queue_item(item_id)})
+
+
+@app.route("/api/resume/queue/<int:item_id>/cancel", methods=["POST"])
+def resume_queue_cancel(item_id):
+    """Stop + remove a queue item, including one that is currently generating."""
+    item = db.get_queue_item(item_id)
+    if not item:
+        return jsonify({"error": "not found"}), 404
+    if item.get("status") == "generating":
+        # Signal the worker to abort at its next checkpoint; mark it so the UI shows
+        # "stopping…". The worker deletes the row once it aborts.
+        _request_cancel(item_id)
+        db.update_queue_item(item_id, status="canceling")
+        return jsonify({"status": "canceling"})
+    db.delete_queue_item(item_id)  # queued/done/error/canceling -> remove now
+    return jsonify({"status": "removed"})
 
 
 @app.route("/api/resume/queue/<int:item_id>/retry", methods=["POST"])

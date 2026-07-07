@@ -135,7 +135,7 @@ function label(item) {
   return item.profile_name ? `${item.profile_name} — ${parts}` : parts;
 }
 
-const ICON = { queued: "⏳", generating: "⚙️", done: "✅", error: "❌" };
+const ICON = { queued: "⏳", generating: "⚙️", done: "✅", error: "❌", canceling: "🛑" };
 
 function renderQueue() {
   $("queuePanel").style.display = queue.length ? "block" : "none";
@@ -157,6 +157,8 @@ function renderQueue() {
         ? `ATS ${item.ats}%${t2 != null ? ` · took ${fmtDur(t2)}` : ""}${item.saved_path ? ` · ${item.saved_path}` : ""}`
       : item.status === "generating"
         ? `generating${m}${t2 != null ? ` · ${fmtDur(t2)}…` : ""}`
+      : item.status === "canceling"
+        ? "stopping…"
         : item.status + m;
     const draggable = item.status === "queued";
     return `
@@ -169,6 +171,8 @@ function renderQueue() {
         ${item.status === "done" ? `<button class="mini" data-dl="${item.id}">Download</button> <button class="mini" data-view="${item.id}">Preview</button>` : ""}
         ${item.status === "error" ? `<button class="mini" data-retry="${item.id}">Regenerate</button> <button class="mini" data-rm="${item.id}">Remove</button>` : ""}
         ${item.status === "queued" ? `<button class="mini" data-rm="${item.id}">Remove</button>` : ""}
+        ${item.status === "generating" ? `<button class="mini" data-stop="${item.id}">Stop</button>` : ""}
+        ${item.status === "canceling" ? `<button class="mini" disabled>Stopping…</button>` : ""}
       </span>
     </li>`;
   }).join("");
@@ -293,6 +297,11 @@ $("queueList").addEventListener("click", async (e) => {
     refreshQueue();
   } else if (t.dataset.rm) {
     await fetch("/api/resume/queue/" + t.dataset.rm, { method: "DELETE" });
+    refreshQueue();
+  } else if (t.dataset.stop) {
+    t.disabled = true;
+    await fetch("/api/resume/queue/" + t.dataset.stop + "/cancel", { method: "POST" });
+    setStatus("Stopping…");
     refreshQueue();
   } else if (t.dataset.dl) {
     downloadQueueItem(t.dataset.dl);

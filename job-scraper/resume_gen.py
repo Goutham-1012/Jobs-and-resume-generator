@@ -338,19 +338,33 @@ def get_key():
     return key
 
 
+class Cancelled(Exception):
+    """Raised inside generate_resume when the queue item was asked to stop."""
+
+
 def _openai_post(payload, timeout=300, retries=2):
     """POST to OpenAI with a generous timeout and automatic retry on transient network
-    timeouts / connection drops. Reasoning models (gpt-5-mini) plus the multi-pass audit
-    loop can occasionally exceed a single request window, so one slow call shouldn't fail
-    the whole resume. Raises the last exception only if every attempt fails."""
+    timeouts / connection drops AND on rate-limit / 5xx responses (3 resumes generating
+    concurrently make a 429 blip more likely). Reasoning models plus the multi-pass audit
+    loop can occasionally exceed a single request window, so one slow/blipped call shouldn't
+    fail the whole resume. Retries use a short backoff; returns the last response otherwise."""
+    import time as _time
     headers = {"Authorization": f"Bearer {get_key()}", "Content-Type": "application/json"}
-    last = None
-    for _ in range(retries + 1):
+    last_exc = resp = None
+    for attempt in range(retries + 1):
         try:
-            return requests.post(OPENAI_URL, headers=headers, json=payload, timeout=timeout)
+            resp = requests.post(OPENAI_URL, headers=headers, json=payload, timeout=timeout)
         except (requests.Timeout, requests.ConnectionError) as e:
-            last = e
-    raise last
+            last_exc = e
+            _time.sleep(1.5 * (attempt + 1))
+            continue
+        if resp.status_code in (429, 500, 502, 503, 504) and attempt < retries:
+            _time.sleep(2 * (attempt + 1))
+            continue
+        return resp
+    if resp is not None:
+        return resp
+    raise last_exc
 
 
 def load_base_resume():
@@ -360,11 +374,19 @@ def load_base_resume():
     return ""
 
 
-def generate_resume(resume_text, job_description, model=None, expected_companies=None):
+def generate_resume(resume_text, job_description, model=None, expected_companies=None,
+                    cancel_check=None):
     """Call OpenAI (JSON mode) and return the structured resume dict.
 
     `expected_companies` (per-profile) drives the keep-all-roles audit; when None it
-    falls back to the default profile's EXPECTED_COMPANIES (backward compatible)."""
+    falls back to the default profile's EXPECTED_COMPANIES (backward compatible).
+    `cancel_check` (optional callable) is polled between the blocking OpenAI calls; when it
+    returns True, generation aborts with Cancelled. It is a no-op when not cancelling, so a
+    completed resume is byte-identical to before."""
+    def _ck():
+        if cancel_check and cancel_check():
+            raise Cancelled()
+
     resume_text = _normalize_text((resume_text or "").strip()) or load_base_resume()
     if not resume_text:
         raise ValueError("Original resume is required.")
@@ -391,6 +413,7 @@ def generate_resume(resume_text, job_description, model=None, expected_companies
         {"role": "user", "content": user_msg},
     ], 0.4)
 
+    _ck()  # stop before the (expensive) initial generation call
     resp = _openai_post(payload)
     if resp.status_code >= 400:
         raise RuntimeError(f"OpenAI HTTP {resp.status_code}: {resp.text[:300]}")
@@ -405,6 +428,7 @@ def generate_resume(resume_text, job_description, model=None, expected_companies
     best_key = (float("inf"),)
     polished = 0
     for _ in range(12):
+        _ck()  # stop between repair passes
         problems = _audit(data, job_description, expected_companies, analysis)
         score = ats_score(data, job_description)
         key = (len(problems), -score)
@@ -420,6 +444,7 @@ def generate_resume(resume_text, job_description, model=None, expected_companies
 
     # 3) Final quality gate: if any CRITICAL issue survived the loop (missing role,
     #    under-leveled title, em dash, encoding artifact), spend one last repair on it.
+    _ck()  # stop before the final-gate repair
     critical = _critical_issues(best, job_description, expected_companies, analysis)
     if critical:
         fixed = _repair(best, job_description, critical, model, system_prompt)
