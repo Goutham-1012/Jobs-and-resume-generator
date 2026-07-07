@@ -81,11 +81,11 @@ function esc(s) {
 
 function rowHtml(j) {
   const unseen = !j.seen;
-  const link = j.url
-    ? `<a href="${esc(j.url)}" target="_blank" rel="noopener" data-job-id="${j.id}">Open ↗</a>` +
-      (unseen ? ` <span class="badge unseen-badge">Unseen</span>` : "")
+  const openLink = j.url
+    ? `<span class="open-line"><a href="${esc(j.url)}" target="_blank" rel="noopener" data-job-id="${j.id}">Open ↗</a>` +
+      (unseen ? ` <span class="badge unseen-badge">Unseen</span>` : "") + `</span>`
     : "";
-  const queueBtn = `<div><button class="mini" data-enqueue="${j.id}" title="Add to resume generation queue">+ Queue</button></div>`;
+  const queueBtn = `<button class="mini queue-btn" data-enqueue="${j.id}" title="Add this job to the resume generation queue">+ Queue</button>`;
   return `
     <tr class="${unseen ? "unseen" : ""}">
       <td>${unseen ? '<span class="unseen-dot" title="Unseen"></span>' : ""}${esc(j.title)}</td>
@@ -94,7 +94,7 @@ function rowHtml(j) {
       <td>${esc(j.salary)}</td>
       <td><span class="badge">${esc(j.source)}</span></td>
       <td>${esc((j.posted_date || "").slice(0, 10))}</td>
-      <td>${link}${queueBtn}</td>
+      <td><div class="link-cell">${openLink}${queueBtn}</div></td>
     </tr>`;
 }
 
@@ -148,9 +148,18 @@ $("jobsBody").addEventListener("click", async (e) => {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ profileId }),
     });
-    const d = await r.json();
-    if (!r.ok) { btn.disabled = false; setStatus("Could not queue: " + (d.error || r.status)); return; }
+    let d = {};
+    try { d = await r.json(); } catch (_) { /* HTML error page (e.g. stale server) */ }
+    if (!r.ok) {
+      btn.disabled = false;
+      const msg = d.error || (r.status === 404
+        ? "server route missing — restart the app so it loads the new route"
+        : `HTTP ${r.status}`);
+      setStatus("Could not queue: " + msg);
+      return;
+    }
     btn.textContent = "Queued ✓";
+    btn.classList.add("queued");
     $("viewQueueLink").style.display = "inline";
     setStatus("Added to the resume queue.");
   } catch (err) {

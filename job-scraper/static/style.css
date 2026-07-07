@@ -121,6 +121,17 @@ button.secondary:hover { background: #262c3b; filter: none; }
   padding: 5px 12px; font-size: 12px; font-weight: 500; margin-left: 8px; border-radius: 7px; box-shadow: none;
 }
 .mini:hover { background: #2a3142; filter: none; }
+
+/* Link column: Open link + "Add to queue" button, stacked and left-aligned */
+.link-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 7px; }
+.link-cell .mini { margin-left: 0; }
+.open-line { white-space: nowrap; }
+.queue-btn { padding: 4px 11px; font-size: 11.5px; line-height: 1.2; }
+.queue-btn.queued {
+  color: #4caf82; border-color: rgba(76, 175, 130, .5);
+  background: rgba(76, 175, 130, .12); cursor: default;
+}
+.queue-btn.queued:hover { background: rgba(76, 175, 130, .12); }
 .status { margin-top: 14px; font-size: 13px; color: var(--muted); white-space: pre-line; line-height: 1.5; }
 
 /* ---------- Toolbar ---------- */
